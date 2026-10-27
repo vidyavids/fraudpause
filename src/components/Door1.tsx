@@ -21,7 +21,55 @@ const verdictStyles: Record<string, string> = {
   'Looks consistent with legitimate': 'bg-emerald-700 text-white',
 };
 
+function VerdictCard({ result }: { result: VerdictResult }) {
+  return (
+    <section aria-label="Verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <span
+        className={`inline-block rounded-full px-3 py-1 text-sm font-bold ${verdictStyles[result.verdict]}`}
+      >
+        {result.verdict}
+      </span>
+      {result.mock && result.note && (
+        <p className="mt-2 text-xs text-slate-500">{result.note}</p>
+      )}
+
+      <h3 className="mt-3 text-sm font-bold">Red flags</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        {result.redFlags.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+
+      <h3 className="mt-3 text-sm font-bold">What to do now</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        {result.whatToDo.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+
+      <h3 className="mt-3 text-sm font-bold">What to say</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        {result.whatToSay.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function PrivacyLine() {
+  return (
+    <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
+      Privacy: nothing submitted is stored. Your input is used only to produce
+      this verdict and is never saved.
+    </p>
+  );
+}
+
+type InputMode = 'standard' | 'whatsapp';
+
 export default function Door1() {
+  const [mode, setMode] = useState<InputMode>('standard');
   const [messageText, setMessageText] = useState('');
   const [callDescription, setCallDescription] = useState('');
   const [screenshotName, setScreenshotName] = useState<string | null>(null);
@@ -30,6 +78,12 @@ export default function Door1() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VerdictResult | null>(null);
   const [alreadySent, setAlreadySent] = useState(false);
+
+  const [waText, setWaText] = useState('');
+  const [waSent, setWaSent] = useState<string | null>(null);
+  const [waLoading, setWaLoading] = useState(false);
+  const [waError, setWaError] = useState<string | null>(null);
+  const [waResult, setWaResult] = useState<VerdictResult | null>(null);
 
   const hasInput =
     messageText.trim().length > 0 ||
@@ -71,129 +125,225 @@ export default function Door1() {
     }
   }
 
+  async function onWaSend() {
+    setWaError(null);
+    setWaResult(null);
+    const text = waText.trim();
+    if (!text) {
+      setWaError('Paste the WhatsApp message first.');
+      return;
+    }
+    setWaSent(text);
+    setWaLoading(true);
+    try {
+      // Same verdict engine as the other modes — no new backend.
+      const verdict = await requestVerdict({
+        messageText: text,
+        callDescription: '',
+        hasScreenshot: false,
+      });
+      setWaResult(verdict);
+    } catch {
+      setWaError(`${FALLBACK_LINE} (The check failed — stay paused.)`);
+    } finally {
+      setWaLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">
-        Paste what you received or describe the call. You get a verdict, red
-        flags, and exactly what to do and say.
-      </p>
-
-      <label className="block">
-        <span className="mb-1 block text-sm font-semibold">
-          1. Paste the text or email
-        </span>
-        <textarea
-          value={messageText}
-          onChange={(e) => setMessageText(e.target.value)}
-          rows={5}
-          placeholder="Paste the full message here, including links and the sender name…"
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
-        />
-      </label>
-
-      <label className="block">
-        <span className="mb-1 block text-sm font-semibold">
-          2. Upload a screenshot <span className="font-normal text-slate-500">(optional)</span>
-        </span>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => onFileChange(e.target.files?.[0])}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
-        />
-        {screenshotPreview && (
-          <img
-            src={screenshotPreview}
-            alt="Screenshot preview"
-            className="mt-2 max-h-48 rounded-lg border border-slate-200 object-contain"
-          />
-        )}
-      </label>
-
-      <label className="block">
-        <span className="mb-1 block text-sm font-semibold">
-          3. Describe the call <span className="font-normal text-slate-500">(optional)</span>
-        </span>
-        <textarea
-          value={callDescription}
-          onChange={(e) => setCallDescription(e.target.value)}
-          rows={3}
-          placeholder="Who called, what did they ask for, what pressure did you feel…"
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
-        />
-      </label>
-
-      <button
-        type="button"
-        onClick={onCheck}
-        disabled={loading}
-        className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
-      >
-        {loading ? 'Checking…' : 'Check this now'}
-      </button>
-
-      {error && (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-          {error}
-        </p>
-      )}
-
-      {result && (
-        <section aria-label="Verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span
-            className={`inline-block rounded-full px-3 py-1 text-sm font-bold ${verdictStyles[result.verdict]}`}
-          >
-            {result.verdict}
-          </span>
-          {result.mock && result.note && (
-            <p className="mt-2 text-xs text-slate-500">{result.note}</p>
-          )}
-
-          <h3 className="mt-3 text-sm font-bold">Red flags</h3>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-            {result.redFlags.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-
-          <h3 className="mt-3 text-sm font-bold">What to do now</h3>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-            {result.whatToDo.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-
-          <h3 className="mt-3 text-sm font-bold">What to say</h3>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-            {result.whatToSay.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div role="tablist" aria-label="Input mode" className="flex gap-2 text-sm">
         <button
           type="button"
-          onClick={() => setAlreadySent((v) => !v)}
-          className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
-          aria-expanded={alreadySent}
+          role="tab"
+          aria-selected={mode === 'standard'}
+          onClick={() => setMode('standard')}
+          className={`rounded-full px-3 py-1 font-semibold ${
+            mode === 'standard'
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-100 text-slate-700'
+          }`}
         >
-          {alreadySent ? 'Hide the aftermath checklist' : 'I already sent it — what now?'}
+          Paste / screenshot / call
         </button>
-        {alreadySent && (
-          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">
-            {AFTERMATH_CHECKLIST.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-        )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'whatsapp'}
+          onClick={() => setMode('whatsapp')}
+          className={`rounded-full px-3 py-1 font-semibold ${
+            mode === 'whatsapp'
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-100 text-slate-700'
+          }`}
+        >
+          Forwarded from WhatsApp
+        </button>
       </div>
 
-      <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
-        Privacy: nothing submitted is stored. Your input is used only to produce
-        this verdict and is never saved.
-      </p>
+      {mode === 'standard' && (
+        <>
+          <p className="text-sm text-slate-600">
+            Paste what you received or describe the call. You get a verdict, red
+            flags, and exactly what to do and say.
+          </p>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">
+              1. Paste the text or email
+            </span>
+            <textarea
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              rows={5}
+              placeholder="Paste the full message here, including links and the sender name…"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">
+              2. Upload a screenshot <span className="font-normal text-slate-500">(optional)</span>
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => onFileChange(e.target.files?.[0])}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
+            />
+            {screenshotPreview && (
+              <img
+                src={screenshotPreview}
+                alt="Screenshot preview"
+                className="mt-2 max-h-48 rounded-lg border border-slate-200 object-contain"
+              />
+            )}
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">
+              3. Describe the call <span className="font-normal text-slate-500">(optional)</span>
+            </span>
+            <textarea
+              value={callDescription}
+              onChange={(e) => setCallDescription(e.target.value)}
+              rows={3}
+              placeholder="Who called, what did they ask for, what pressure did you feel…"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={onCheck}
+            disabled={loading}
+            className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
+          >
+            {loading ? 'Checking…' : 'Check this now'}
+          </button>
+
+          {error && (
+            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+              {error}
+            </p>
+          )}
+
+          {result && <VerdictCard result={result} />}
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setAlreadySent((v) => !v)}
+              className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
+              aria-expanded={alreadySent}
+            >
+              {alreadySent ? 'Hide the aftermath checklist' : 'I already sent it — what now?'}
+            </button>
+            {alreadySent && (
+              <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">
+                {AFTERMATH_CHECKLIST.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          <PrivacyLine />
+        </>
+      )}
+
+      {mode === 'whatsapp' && (
+        <>
+          <p className="text-sm text-slate-600">
+            In the full shield, you&apos;d forward this to FraudPause on
+            WhatsApp — here, paste it to see the same check.
+          </p>
+
+          <div aria-label="WhatsApp check thread" className="space-y-3 rounded-xl bg-slate-100 p-3">
+            {waSent === null && !waLoading && !waError && !waResult && (
+              <p className="px-1 py-2 text-center text-sm text-slate-500">
+                Paste the message you received below and send it to FraudPause.
+              </p>
+            )}
+
+            {waSent !== null && (
+              <div className="flex justify-end">
+                <p className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-sm bg-emerald-100 px-3 py-2 text-sm text-slate-900 shadow-sm">
+                  {waSent}
+                </p>
+              </div>
+            )}
+
+            {waLoading && (
+              <div className="flex justify-start">
+                <p className="rounded-xl rounded-bl-sm bg-white px-3 py-2 text-sm text-slate-500 shadow-sm">
+                  Checking…
+                </p>
+              </div>
+            )}
+
+            {waError && (
+              <div className="flex justify-start">
+                <p role="alert" className="max-w-[85%] rounded-xl rounded-bl-sm bg-red-50 px-3 py-2 text-sm text-red-800 shadow-sm">
+                  {waError}
+                </p>
+              </div>
+            )}
+
+            {waResult && (
+              <div className="flex justify-start">
+                <div className="w-full max-w-[95%]">
+                  <VerdictCard result={waResult} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">
+              Paste the WhatsApp message
+            </span>
+            <textarea
+              value={waText}
+              onChange={(e) => setWaText(e.target.value)}
+              rows={4}
+              placeholder="Paste the full message here, including links and the sender name…"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={onWaSend}
+            disabled={waLoading}
+            className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
+          >
+            {waLoading ? 'Checking…' : 'Send to FraudPause'}
+          </button>
+
+          <PrivacyLine />
+        </>
+      )}
     </div>
   );
 }
