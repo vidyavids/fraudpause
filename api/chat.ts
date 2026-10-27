@@ -226,7 +226,8 @@ export default async function handler(req: any, res: any) {
           { role: 'user', content: userContent },
         ],
         temperature: 0.2,
-        max_tokens: 800,
+        // Room for ~800 reasoning tokens PLUS the verdict answer.
+        max_completion_tokens: 4000,
         // Guaranteed-conforming JSON (dev.meta.ai/docs/structured-output).
         response_format: {
           type: 'json_schema',
