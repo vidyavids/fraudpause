@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   FALLBACK_LINE,
   requestVerdict,
   type VerdictResult,
 } from '../lib/api';
-import { applyQrCeiling, decodeQrFromFile } from '../lib/qr';
+import {
+  applyQrCeiling,
+  decodeCanvas,
+  decodeQrFromFile,
+  fileToScreeningDataUrl,
+} from '../lib/qr';
 
 const AFTERMATH_CHECKLIST = [
   'Call your bank NOW using the number on your card — ask to freeze, recall, or dispute the payment.',
@@ -147,6 +152,19 @@ export default function Door1() {
   const [qrLoading, setQrLoading] = useState(false);
   const [qrError, setQrError] = useState<string | null>(null);
   const [qrResult, setQrResult] = useState<VerdictResult | null>(null);
+  // Downscaled upload photo for the vision tamper check:
+  // undefined = preparing, null = unavailable (check runs text-only).
+  const [qrScreeningImage, setQrScreeningImage] = useState<string | null | undefined>(undefined);
+
+  const [qrSource, setQrSource] = useState<'upload' | 'camera'>('upload');
+  const [camOn, setCamOn] = useState(false);
+  const [camDecoded, setCamDecoded] = useState<string | null>(null);
+  const [camFrame, setCamFrame] = useState<string | null>(null);
+  const [camError, setCamError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scanCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef(0);
 
   // Screen every sample message on arrival — automatically, before the user
   // opens the inbox — through the same verdict engine as the other modes.
@@ -169,6 +187,16 @@ export default function Door1() {
       cancelled = true;
     };
   }, []);
+
+  // Release the camera whenever the user leaves the camera pane or Door 1.
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setCamOn(false);
+    };
+  }, [mode, qrSource]);
 
   const hasInput =
     messageText.trim().length > 0 ||
@@ -239,6 +267,7 @@ export default function Door1() {
     setQrError(null);
     setQrResult(null);
     setQrDecoded(null);
+    setQrScreeningImage(undefined);
     if (!file) {
       setQrFileName(null);
       setQrPreview(null);
@@ -247,6 +276,8 @@ export default function Door1() {
     setQrFileName(file.name);
     // Local preview only — nothing is uploaded or stored.
     setQrPreview(URL.createObjectURL(file));
+    // Downscaled copy for the vision tamper check, prepared alongside decode.
+    fileToScreeningDataUrl(file).then((d) => setQrScreeningImage(d));
     setQrDecoding(true);
     try {
       const decoded = await decodeQrFromFile(file);
@@ -276,10 +307,102 @@ export default function Door1() {
         messageText: `Photo of a QR sticker. The QR code decodes to this link: ${qrDecoded}`,
         callDescription: '',
         hasScreenshot: false,
+        imageDataUrl: qrScreeningImage ?? undefined,
       });
       setQrResult(applyQrCeiling(verdict));
     } catch {
       setQrError(`${FALLBACK_LINE} (The check failed — stay paused.)`);
+    } finally {
+      setQrLoading(false);
+    }
+  }
+
+  function stopCamera() {
+    cancelAnimationFrame(rafRef.current);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCamOn(false);
+  }
+
+  function scanLoop() {
+    const video = videoRef.current;
+    const canvas = scanCanvasRef.current;
+    if (!video || !canvas || video.readyState < 2) {
+      rafRef.current = requestAnimationFrame(scanLoop);
+      return;
+    }
+    const maxDim = 640;
+    const scale = Math.min(1, maxDim / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const decoded = decodeCanvas(canvas);
+      if (decoded) {
+        setCamDecoded(decoded);
+        try {
+          setCamFrame(canvas.toDataURL('image/jpeg', 0.7));
+        } catch {
+          setCamFrame(null);
+        }
+        stopCamera();
+        return;
+      }
+    }
+    rafRef.current = requestAnimationFrame(scanLoop);
+  }
+
+  async function startCamera() {
+    setCamError(null);
+    setCamDecoded(null);
+    setCamFrame(null);
+    setQrResult(null);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCamError('This browser cannot access the camera. Use photo upload instead.');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (!video) {
+        stopCamera();
+        return;
+      }
+      video.srcObject = stream;
+      await video.play();
+      setCamOn(true);
+      scanLoop();
+    } catch {
+      setCamError('Camera unavailable or permission denied. Use photo upload instead.');
+      stopCamera();
+    }
+  }
+
+  async function onCamCheck() {
+    setCamError(null);
+    setQrResult(null);
+    if (!camDecoded) {
+      setCamError('Point the camera at the QR code first.');
+      return;
+    }
+    setQrLoading(true);
+    try {
+      // Same verdict engine as the other modes — no new backend.
+      const verdict = await requestVerdict({
+        messageText: `Photo of a QR sticker. The QR code decodes to this link: ${camDecoded}`,
+        callDescription: '',
+        hasScreenshot: false,
+        imageDataUrl: camFrame ?? undefined,
+      });
+      setQrResult(applyQrCeiling(verdict));
+    } catch {
+      setCamError(`${FALLBACK_LINE} (The check failed — stay paused.)`);
     } finally {
       setQrLoading(false);
     }
@@ -580,51 +703,163 @@ export default function Door1() {
             A QR sticker can hide any link. FraudPause reads what it really
             points to before you pay.
           </p>
+          <p className="text-xs text-slate-500">
+            Your photo is sent with the check so the sticker itself can be
+            examined for tamper signs. It is used only for this verdict and
+            never stored.
+          </p>
 
-          <label className="block">
-            <span className="mb-1 block text-sm font-semibold">
-              1. Photograph the QR sticker
-            </span>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => onQrFileChange(e.target.files?.[0])}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
-            />
-            {qrPreview && (
-              <img
-                src={qrPreview}
-                alt="QR photo preview"
-                className="mt-2 max-h-48 rounded-lg border border-slate-200 object-contain"
-              />
-            )}
-          </label>
+          <div role="tablist" aria-label="QR input" className="flex gap-2 text-sm">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={qrSource === 'upload'}
+              onClick={() => setQrSource('upload')}
+              className={`rounded-full px-3 py-1 font-semibold ${
+                qrSource === 'upload'
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              Upload photo
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={qrSource === 'camera'}
+              onClick={() => setQrSource('camera')}
+              className={`rounded-full px-3 py-1 font-semibold ${
+                qrSource === 'camera'
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              Live camera
+            </button>
+          </div>
 
-          {qrDecoding && (
-            <p className="text-sm text-slate-500">Reading the QR code…</p>
+          {qrSource === 'upload' && (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-sm font-semibold">
+                  1. Photograph the QR sticker
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => onQrFileChange(e.target.files?.[0])}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
+                />
+                {qrPreview && (
+                  <img
+                    src={qrPreview}
+                    alt="QR photo preview"
+                    className="mt-2 max-h-48 rounded-lg border border-slate-200 object-contain"
+                  />
+                )}
+              </label>
+
+              {qrDecoding && (
+                <p className="text-sm text-slate-500">Reading the QR code…</p>
+              )}
+
+              {qrDecoded && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <h3 className="text-sm font-bold">This QR points to</h3>
+                  <p className="mt-1 break-all font-mono text-sm">{qrDecoded}</p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={onQrCheck}
+                disabled={qrLoading || qrDecoding || !qrDecoded || qrScreeningImage === undefined}
+                className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
+              >
+                {qrLoading ? 'Checking…' : 'Check this link'}
+              </button>
+
+              {qrError && (
+                <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {qrError}
+                </p>
+              )}
+            </>
           )}
 
-          {qrDecoded && (
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-sm font-bold">This QR points to</h3>
-              <p className="mt-1 break-all font-mono text-sm">{qrDecoded}</p>
-            </div>
-          )}
+          {qrSource === 'camera' && (
+            <>
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <video
+                  ref={videoRef}
+                  playsInline
+                  muted
+                  className={`w-full rounded-lg bg-slate-900 ${camOn ? '' : 'hidden'}`}
+                />
+                {camOn ? (
+                  <p className="mt-2 text-center text-sm text-slate-500">
+                    Point the camera at the QR code — it reads automatically.
+                  </p>
+                ) : (
+                  <p className="py-2 text-center text-sm text-slate-500">
+                    Point your camera at the QR sticker and it decodes live, in
+                    your browser.
+                  </p>
+                )}
+                <canvas ref={scanCanvasRef} className="hidden" aria-hidden="true" />
+              </div>
 
-          <button
-            type="button"
-            onClick={onQrCheck}
-            disabled={qrLoading || qrDecoding || !qrDecoded}
-            className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
-          >
-            {qrLoading ? 'Checking…' : 'Check this link'}
-          </button>
+              {!camOn ? (
+                <button
+                  type="button"
+                  onClick={startCamera}
+                  className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
+                >
+                  Start camera
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-semibold shadow-sm"
+                >
+                  Stop camera
+                </button>
+              )}
 
-          {qrError && (
-            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-              {qrError}
-            </p>
+              {camFrame && (
+                <img
+                  src={camFrame}
+                  alt="Captured QR frame"
+                  className="max-h-48 rounded-lg border border-slate-200 object-contain"
+                />
+              )}
+
+              {camDecoded && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <h3 className="text-sm font-bold">This QR points to</h3>
+                  <p className="mt-1 break-all font-mono text-sm">{camDecoded}</p>
+                </div>
+              )}
+
+              {camDecoded && (
+                <button
+                  type="button"
+                  onClick={onCamCheck}
+                  disabled={qrLoading}
+                  className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
+                >
+                  {qrLoading ? 'Checking…' : 'Check this link'}
+                </button>
+              )}
+
+              {camError && (
+                <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {camError}
+                </p>
+              )}
+            </>
           )}
 
           {qrResult && <VerdictCard result={qrResult} />}

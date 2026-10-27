@@ -17,6 +17,8 @@ export interface VerdictInput {
   callDescription: string;
   hasScreenshot: boolean;
   screenshotName?: string;
+  /** Optional downscaled photo (QR tamper check). Ignored by the local mock. */
+  imageDataUrl?: string;
 }
 
 export const FALLBACK_LINE =

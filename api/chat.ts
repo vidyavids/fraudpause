@@ -185,6 +185,14 @@ export default async function handler(req: any, res: any) {
   const messageText = String(body.messageText ?? '').slice(0, 8000);
   const callDescription = String(body.callDescription ?? '').slice(0, 8000);
   const hasScreenshot = Boolean(body.hasScreenshot);
+  // Optional downscaled photo for the QR tamper check. Length-guarded: an
+  // oversized or non-image value is dropped and the check proceeds text-only.
+  const imageDataUrl =
+    typeof body.imageDataUrl === 'string' &&
+    body.imageDataUrl.startsWith('data:image/') &&
+    body.imageDataUrl.length <= 2500000
+      ? (body.imageDataUrl as string)
+      : undefined;
 
   if (!messageText.trim() && !callDescription.trim() && !hasScreenshot) {
     res.status(400).json({ error: 'Provide messageText, callDescription, or a screenshot flag.' });
@@ -193,6 +201,7 @@ export default async function handler(req: any, res: any) {
 
   const apiKey = process.env.META_API_KEY;
   console.log('[FraudPause] META_API_KEY present:', apiKey ? 'yes' : 'no');
+  console.log('[FraudPause] screening image present:', imageDataUrl ? 'yes' : 'no');
   if (!apiKey) {
     res.status(200).json(mockVerdict({ messageText, callDescription, hasScreenshot }));
     return;
@@ -213,6 +222,23 @@ export default async function handler(req: any, res: any) {
       .filter(Boolean)
       .join('\n\n');
 
+    // QR tamper check: when a photo is attached, send it as an image_url
+    // content block (dev.meta.ai/docs/image-understanding) and ask the vision
+    // model to fold physical tamper signs into the verdict's red flags.
+    // Without an image the message is unchanged from before.
+    const userMessage = imageDataUrl
+      ? {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `${userContent}\n\nAlso inspect the attached photo of the QR sticker for physical tamper signs: sticker edges, double layers, peeling, misalignment, or a sticker covering the meter's printed QR. Report any tamper signs found as red flags in your verdict.`,
+            },
+            { type: 'image_url', image_url: { url: imageDataUrl } },
+          ],
+        }
+      : { role: 'user', content: userContent };
+
     const upstream = await fetch(baseUrl, {
       method: 'POST',
       headers: {
@@ -221,10 +247,7 @@ export default async function handler(req: any, res: any) {
       },
       body: JSON.stringify({
         model: 'muse-spark-1.3',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userContent },
-        ],
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, userMessage],
         temperature: 0.2,
         // Room for ~800 reasoning tokens PLUS the verdict answer.
         max_completion_tokens: 4000,
