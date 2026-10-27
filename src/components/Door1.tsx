@@ -4,6 +4,7 @@ import {
   requestVerdict,
   type VerdictResult,
 } from '../lib/api';
+import { applyQrCeiling, decodeQrFromFile } from '../lib/qr';
 
 const AFTERMATH_CHECKLIST = [
   'Call your bank NOW using the number on your card — ask to freeze, recall, or dispute the payment.',
@@ -66,7 +67,7 @@ function PrivacyLine() {
   );
 }
 
-type InputMode = 'standard' | 'whatsapp' | 'sms';
+type InputMode = 'standard' | 'whatsapp' | 'sms' | 'qr';
 
 interface SampleSms {
   id: string;
@@ -138,6 +139,14 @@ export default function Door1() {
     Record<string, VerdictResult | null | undefined>
   >({});
   const [selectedSmsId, setSelectedSmsId] = useState<string | null>(null);
+
+  const [qrFileName, setQrFileName] = useState<string | null>(null);
+  const [qrPreview, setQrPreview] = useState<string | null>(null);
+  const [qrDecoded, setQrDecoded] = useState<string | null>(null);
+  const [qrDecoding, setQrDecoding] = useState(false);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [qrResult, setQrResult] = useState<VerdictResult | null>(null);
 
   // Screen every sample message on arrival — automatically, before the user
   // opens the inbox — through the same verdict engine as the other modes.
@@ -226,6 +235,56 @@ export default function Door1() {
     }
   }
 
+  async function onQrFileChange(file: File | undefined) {
+    setQrError(null);
+    setQrResult(null);
+    setQrDecoded(null);
+    if (!file) {
+      setQrFileName(null);
+      setQrPreview(null);
+      return;
+    }
+    setQrFileName(file.name);
+    // Local preview only — nothing is uploaded or stored.
+    setQrPreview(URL.createObjectURL(file));
+    setQrDecoding(true);
+    try {
+      const decoded = await decodeQrFromFile(file);
+      if (!decoded) {
+        setQrError(
+          "Couldn't find a QR code in this photo. Don't pay via this sticker — use the official app or the meter itself.",
+        );
+        return;
+      }
+      setQrDecoded(decoded);
+    } finally {
+      setQrDecoding(false);
+    }
+  }
+
+  async function onQrCheck() {
+    setQrError(null);
+    setQrResult(null);
+    if (!qrDecoded) {
+      setQrError('Upload a photo of the QR code first.');
+      return;
+    }
+    setQrLoading(true);
+    try {
+      // Same verdict engine as the other modes — no new backend.
+      const verdict = await requestVerdict({
+        messageText: `Photo of a QR sticker. The QR code decodes to this link: ${qrDecoded}`,
+        callDescription: '',
+        hasScreenshot: false,
+      });
+      setQrResult(applyQrCeiling(verdict));
+    } catch {
+      setQrError(`${FALLBACK_LINE} (The check failed — stay paused.)`);
+    } finally {
+      setQrLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div role="tablist" aria-label="Input mode" className="flex gap-2 text-sm">
@@ -267,6 +326,19 @@ export default function Door1() {
           }`}
         >
           SMS screening
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'qr'}
+          onClick={() => setMode('qr')}
+          className={`rounded-full px-3 py-1 font-semibold ${
+            mode === 'qr'
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-100 text-slate-700'
+          }`}
+        >
+          QR-photo check
         </button>
       </div>
 
@@ -497,6 +569,65 @@ export default function Door1() {
             smsVerdicts[selectedSmsId] !== null && (
               <VerdictCard result={smsVerdicts[selectedSmsId] as VerdictResult} />
             )}
+
+          <PrivacyLine />
+        </>
+      )}
+
+      {mode === 'qr' && (
+        <>
+          <p className="text-sm text-slate-600">
+            A QR sticker can hide any link. FraudPause reads what it really
+            points to before you pay.
+          </p>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">
+              1. Photograph the QR sticker
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => onQrFileChange(e.target.files?.[0])}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
+            />
+            {qrPreview && (
+              <img
+                src={qrPreview}
+                alt="QR photo preview"
+                className="mt-2 max-h-48 rounded-lg border border-slate-200 object-contain"
+              />
+            )}
+          </label>
+
+          {qrDecoding && (
+            <p className="text-sm text-slate-500">Reading the QR code…</p>
+          )}
+
+          {qrDecoded && (
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-bold">This QR points to</h3>
+              <p className="mt-1 break-all font-mono text-sm">{qrDecoded}</p>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={onQrCheck}
+            disabled={qrLoading || qrDecoding || !qrDecoded}
+            className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
+          >
+            {qrLoading ? 'Checking…' : 'Check this link'}
+          </button>
+
+          {qrError && (
+            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+              {qrError}
+            </p>
+          )}
+
+          {qrResult && <VerdictCard result={qrResult} />}
 
           <PrivacyLine />
         </>
