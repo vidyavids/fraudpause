@@ -182,10 +182,11 @@ export default async function handler(req: any, res: any) {
   }
 
   // Live path: call the Muse Spark chat model.
-  // Endpoint is overridable via META_API_BASE_URL; default is the placeholder
-  // path — confirm against the Muse Spark docs when the key is issued.
+  // Documented endpoint (dev.meta.ai/docs/protocols/chat-completions):
+  // POST https://api.meta.ai/v1/chat/completions (OpenAI-compatible).
+  // Overridable via META_API_BASE_URL if Meta ever moves it.
   const baseUrl =
-    process.env.META_API_BASE_URL ?? 'https://api.muse.meta.com/v1/chat';
+    process.env.META_API_BASE_URL ?? 'https://api.meta.ai/v1/chat/completions';
   try {
     const userContent = [
       messageText ? `Message/email:\n${messageText}` : '',
@@ -202,7 +203,7 @@ export default async function handler(req: any, res: any) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'muse-spark',
+        model: 'muse-spark-1.3',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userContent },
