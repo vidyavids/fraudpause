@@ -175,6 +175,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const apiKey = process.env.META_API_KEY;
+  console.log('[FraudPause] META_API_KEY present:', apiKey ? 'yes' : 'no');
   if (!apiKey) {
     res.status(200).json(mockVerdict({ messageText, callDescription, hasScreenshot }));
     return;
@@ -211,7 +212,10 @@ export default async function handler(req: any, res: any) {
       }),
     });
 
+    console.log('[FraudPause] Meta API response status:', upstream.status);
     if (!upstream.ok) {
+      const errorBody = await upstream.text().catch(() => '');
+      console.error('[FraudPause] Meta API error body:', errorBody.slice(0, 2000));
       const mock = mockVerdict({ messageText, callDescription, hasScreenshot });
       mock.note = `Live check failed (upstream ${upstream.status}); returning MOCK verdict. ${FALLBACK_LINE}`;
       res.status(200).json(mock);
@@ -241,7 +245,11 @@ export default async function handler(req: any, res: any) {
         mock: false,
       }),
     );
-  } catch {
+  } catch (err) {
+    console.error(
+      '[FraudPause] Meta API call failed:',
+      err instanceof Error ? err.message : String(err),
+    );
     const mock = mockVerdict({ messageText, callDescription, hasScreenshot });
     mock.note = `Live check unreadable; returning MOCK verdict. ${FALLBACK_LINE}`;
     res.status(200).json(mock);
