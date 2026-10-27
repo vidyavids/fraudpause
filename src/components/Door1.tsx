@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   FALLBACK_LINE,
   requestVerdict,
@@ -66,7 +66,55 @@ function PrivacyLine() {
   );
 }
 
-type InputMode = 'standard' | 'whatsapp';
+type InputMode = 'standard' | 'whatsapp' | 'sms';
+
+interface SampleSms {
+  id: string;
+  sender: string;
+  time: string;
+  body: string;
+}
+
+// Simulation only — sample messages, not the user's real inbox.
+const SAMPLE_SMS: SampleSms[] = [
+  {
+    id: 'sms-delivery-fee',
+    sender: 'POSTAL-SERVICE',
+    time: '9:41 AM',
+    body: 'POSTAL-SERVICE: URGENT — your parcel is held. Pay the $2.30 delivery fee now to release it: post-fee.top/pay',
+  },
+  {
+    id: 'sms-prize-claim',
+    sender: 'PRIZE-INFO',
+    time: '8:15 AM',
+    body: "PRIZE-INFO: Congratulations! You've been selected in our $500 gift draw. To claim, reply with your full account number.",
+  },
+  {
+    id: 'sms-unrequested-otp',
+    sender: 'BANK-ALERT',
+    time: 'Yesterday',
+    body: "BANK-ALERT: Your one-time passcode is 441902. If you didn't request this, call the number on your card.",
+  },
+  {
+    id: 'sms-branch-reminder',
+    sender: 'MAIN ST BRANCH',
+    time: 'Yesterday',
+    body: 'MAIN ST BRANCH: Reminder — your appointment is tomorrow at 10:30 AM. Reply YES to confirm or call to reschedule.',
+  },
+  {
+    id: 'sms-pharmacy',
+    sender: 'PHARMACY',
+    time: 'Monday',
+    body: 'PHARMACY: Your prescription is ready for pickup. Open Mon–Sat 9–6.',
+  },
+];
+
+function smsBadge(verdict: VerdictResult['verdict']): { text: string; classes: string } {
+  if (verdict === 'Likely scam') return { text: 'Likely scam', classes: 'bg-red-700 text-white' };
+  if (verdict === 'Suspicious — slow down')
+    return { text: 'Suspicious', classes: 'bg-amber-500 text-slate-950' };
+  return { text: 'Looks OK', classes: 'bg-emerald-700 text-white' };
+}
 
 export default function Door1() {
   const [mode, setMode] = useState<InputMode>('standard');
@@ -84,6 +132,34 @@ export default function Door1() {
   const [waLoading, setWaLoading] = useState(false);
   const [waError, setWaError] = useState<string | null>(null);
   const [waResult, setWaResult] = useState<VerdictResult | null>(null);
+
+  // SMS simulation: undefined = still screening, null = screening failed.
+  const [smsVerdicts, setSmsVerdicts] = useState<
+    Record<string, VerdictResult | null | undefined>
+  >({});
+  const [selectedSmsId, setSelectedSmsId] = useState<string | null>(null);
+
+  // Screen every sample message on arrival — automatically, before the user
+  // opens the inbox — through the same verdict engine as the other modes.
+  useEffect(() => {
+    let cancelled = false;
+    for (const m of SAMPLE_SMS) {
+      requestVerdict({
+        messageText: m.body,
+        callDescription: '',
+        hasScreenshot: false,
+      })
+        .then((v) => {
+          if (!cancelled) setSmsVerdicts((prev) => ({ ...prev, [m.id]: v }));
+        })
+        .catch(() => {
+          if (!cancelled) setSmsVerdicts((prev) => ({ ...prev, [m.id]: null }));
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hasInput =
     messageText.trim().length > 0 ||
@@ -178,6 +254,19 @@ export default function Door1() {
           }`}
         >
           Forwarded from WhatsApp
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'sms'}
+          onClick={() => setMode('sms')}
+          className={`rounded-full px-3 py-1 font-semibold ${
+            mode === 'sms'
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-100 text-slate-700'
+          }`}
+        >
+          SMS screening
         </button>
       </div>
 
@@ -340,6 +429,74 @@ export default function Door1() {
           >
             {waLoading ? 'Checking…' : 'Send to FraudPause'}
           </button>
+
+          <PrivacyLine />
+        </>
+      )}
+
+      {mode === 'sms' && (
+        <>
+          <p className="text-sm text-slate-600">
+            With your permission, FraudPause screens SMS as it arrives — flags
+            appear automatically, no pasting needed. Here, tap a message to see
+            why it was flagged.
+          </p>
+
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <p className="text-sm font-bold">
+                SIMULATION — sample inbox
+              </p>
+              <p className="text-xs text-slate-500">
+                Sample messages for demonstration. This is not your real inbox.
+              </p>
+            </div>
+            <ul aria-label="Sample SMS inbox" className="divide-y divide-slate-200">
+              {SAMPLE_SMS.map((m) => {
+                const v = smsVerdicts[m.id];
+                const badge =
+                  v === undefined
+                    ? { text: 'Screening…', classes: 'bg-slate-200 text-slate-600' }
+                    : v === null
+                      ? { text: 'Not screened', classes: 'bg-slate-200 text-slate-600' }
+                      : smsBadge(v.verdict);
+                const selected = selectedSmsId === m.id;
+                return (
+                  <li key={m.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSmsId(m.id)}
+                      aria-label={`${m.sender}: ${badge.text}`}
+                      className={`block w-full px-4 py-3 text-left ${
+                        selected ? 'bg-teal-50' : ''
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-bold">{m.sender}</span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className="text-xs text-slate-500">{m.time}</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-bold ${badge.classes}`}
+                          >
+                            {badge.text}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="mt-1 line-clamp-2 block text-sm text-slate-600">
+                        {m.body}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {selectedSmsId !== null &&
+            smsVerdicts[selectedSmsId] !== undefined &&
+            smsVerdicts[selectedSmsId] !== null && (
+              <VerdictCard result={smsVerdicts[selectedSmsId] as VerdictResult} />
+            )}
 
           <PrivacyLine />
         </>
