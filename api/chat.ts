@@ -147,6 +147,23 @@ function mockVerdict(input: {
 const SYSTEM_PROMPT = `You are FraudPause, a scam-detection helper. Classify the user's suspicious message/call into exactly one verdict: "Likely scam", "Suspicious — slow down", or "Looks consistent with legitimate". Reply with JSON only: {"verdict": "...", "redFlags": [..], "whatToDo": [..], "whatToSay": [..]}.
 Rules: never write "100% safe" or "harmless" — no outcome is ever certain. If the input is outside your knowledge, include this exact line in whatToDo: "${FALLBACK_LINE}" Keep lists short (2-4 items each), plain language, mobile-friendly.`;
 
+/**
+ * Pull the assistant message text out of a chat-completions response.
+ * Accepts OpenAI-style string content, content-block arrays
+ * ([{type:'text', text}]), and output/text fallbacks. Exported for testing.
+ */
+export function extractMessageContent(data: any): string {
+  const messageContent = data?.choices?.[0]?.message?.content;
+  if (typeof messageContent === 'string') return messageContent;
+  if (Array.isArray(messageContent)) {
+    return messageContent
+      .map((b) => (typeof b?.text === 'string' ? b.text : ''))
+      .join('');
+  }
+  const fallback = data?.output ?? data?.text;
+  return typeof fallback === 'string' ? fallback : '';
+}
+
 // Minimal req/res typing so the function compiles without @vercel/node.
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -210,6 +227,30 @@ export default async function handler(req: any, res: any) {
         ],
         temperature: 0.2,
         max_tokens: 800,
+        // Guaranteed-conforming JSON (dev.meta.ai/docs/structured-output).
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'Verdict',
+            schema: {
+              type: 'object',
+              properties: {
+                verdict: {
+                  type: 'string',
+                  enum: [
+                    'Likely scam',
+                    'Suspicious — slow down',
+                    'Looks consistent with legitimate',
+                  ],
+                },
+                redFlags: { type: 'array', items: { type: 'string' } },
+                whatToDo: { type: 'array', items: { type: 'string' } },
+                whatToSay: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['verdict', 'redFlags', 'whatToDo', 'whatToSay'],
+            },
+          },
+        },
       }),
     });
 
@@ -223,13 +264,35 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    const data = (await upstream.json()) as any;
-    const content: string =
-      data?.choices?.[0]?.message?.content ??
-      data?.output ??
-      data?.text ??
-      '';
-    const parsed = JSON.parse(content) as VerdictResult;
+    const rawBody = await upstream.text();
+    let data: any;
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      console.error(
+        '[FraudPause] Meta API returned non-JSON body:',
+        rawBody.slice(0, 2000),
+      );
+      throw new Error('upstream body is not JSON');
+    }
+    const content = extractMessageContent(data);
+    if (!content.trim()) {
+      console.error(
+        '[FraudPause] Meta API returned empty content. Body:',
+        rawBody.slice(0, 2000),
+      );
+      throw new Error('upstream content empty');
+    }
+    let parsed: VerdictResult;
+    try {
+      parsed = JSON.parse(content) as VerdictResult;
+    } catch {
+      console.error(
+        '[FraudPause] Meta API content is not JSON:',
+        content.slice(0, 2000),
+      );
+      throw new Error('upstream content is not JSON');
+    }
     if (
       parsed.verdict !== 'Likely scam' &&
       parsed.verdict !== 'Suspicious — slow down' &&
