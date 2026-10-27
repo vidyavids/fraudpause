@@ -133,6 +133,37 @@ export function localMockVerdict(input: VerdictInput): VerdictResult {
   };
 }
 
+/** Whether server-side Voice Transcribe is configured (key present). */
+export async function checkTranscribeAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/transcribe', { method: 'GET' });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data?.available === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Send base64 WAV audio to /api/transcribe; resolves the transcript text. */
+export async function transcribeAudio(audioBase64: string): Promise<string> {
+  const res = await fetch('/api/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ audioBase64 }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    transcript?: unknown;
+    error?: unknown;
+  };
+  if (!res.ok || typeof data.transcript !== 'string' || !data.transcript.trim()) {
+    throw new Error(
+      typeof data.error === 'string' ? data.error : `transcribe ${res.status}`,
+    );
+  }
+  return data.transcript.trim();
+}
+
 export async function requestVerdict(
   input: VerdictInput,
 ): Promise<VerdictResult> {

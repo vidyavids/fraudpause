@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   FALLBACK_LINE,
+  checkTranscribeAvailable,
   requestVerdict,
+  transcribeAudio,
   type VerdictResult,
 } from '../lib/api';
+import {
+  blobToBase64,
+  blobToWav24kMono,
+  getSpeechRecognitionCtor,
+  speakText,
+  type BrowserSpeechRecognition,
+} from '../lib/voice';
 import {
   applyQrCeiling,
   decodeCanvas,
@@ -59,7 +68,90 @@ function VerdictCard({ result }: { result: VerdictResult }) {
           <li key={f}>{f}</li>
         ))}
       </ul>
+
+      {typeof window !== 'undefined' && 'speechSynthesis' in window && (
+        <button
+          type="button"
+          onClick={() =>
+            speakText(`${result.verdict}. ${result.whatToDo[0] ?? ''}`)
+          }
+          className="mt-3 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
+        >
+          Hear this verdict
+        </button>
+      )}
     </section>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
+}
+
+function MicButton({
+  label,
+  state,
+  onPress,
+  onRelease,
+}: {
+  label: string;
+  state: 'idle' | 'active' | 'busy';
+  onPress: () => void;
+  onRelease: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={state === 'busy'}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        onPress();
+      }}
+      onPointerUp={onRelease}
+      onPointerLeave={onRelease}
+      onPointerCancel={onRelease}
+      onKeyDown={(e) => {
+        if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) {
+          e.preventDefault();
+          onPress();
+        }
+      }}
+      onKeyUp={(e) => {
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          onRelease();
+        }
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+      className={`flex touch-none select-none items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold shadow-sm disabled:opacity-60 ${
+        state === 'active' ? 'bg-red-700 text-white' : 'bg-slate-100 text-slate-700'
+      }`}
+    >
+      <MicIcon />
+      {state === 'active'
+        ? 'Listening… release to send'
+        : state === 'busy'
+          ? 'Transcribing…'
+          : 'Hold to talk'}
+    </button>
   );
 }
 
@@ -166,6 +258,19 @@ export default function Door1() {
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef(0);
 
+  type VoiceTarget = 'message' | 'call';
+  const [voiceTarget, setVoiceTarget] = useState<VoiceTarget | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const pressedRef = useRef<VoiceTarget | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const recogRef = useRef<BrowserSpeechRecognition | null>(null);
+  const availRef = useRef<boolean | null>(null);
+  const preferBrowserRef = useRef(false);
+  const maxTimerRef = useRef(0);
+
   // Screen every sample message on arrival — automatically, before the user
   // opens the inbox — through the same verdict engine as the other modes.
   useEffect(() => {
@@ -198,6 +303,21 @@ export default function Door1() {
     };
   }, [mode, qrSource]);
 
+  // Stop any voice capture if Door 1 unmounts mid-press.
+  useEffect(() => {
+    return () => {
+      try {
+        recogRef.current?.abort();
+      } catch {
+        /* noop */
+      }
+      recogRef.current = null;
+      voiceStreamRef.current?.getTracks().forEach((t) => t.stop());
+      voiceStreamRef.current = null;
+      window.clearTimeout(maxTimerRef.current);
+    };
+  }, []);
+
   const hasInput =
     messageText.trim().length > 0 ||
     callDescription.trim().length > 0 ||
@@ -213,6 +333,167 @@ export default function Door1() {
     // Local preview only — nothing is uploaded or stored.
     const url = URL.createObjectURL(file);
     setScreenshotPreview(url);
+  }
+
+  function fillTranscript(target: VoiceTarget, text: string) {
+    if (target === 'message') {
+      setMessageText((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+    } else {
+      setCallDescription((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+    }
+  }
+
+  function stopVoiceTracks() {
+    voiceStreamRef.current?.getTracks().forEach((t) => t.stop());
+    voiceStreamRef.current = null;
+  }
+
+  function resetVoicePress() {
+    window.clearTimeout(maxTimerRef.current);
+    pressedRef.current = null;
+    setVoiceTarget(null);
+  }
+
+  function startBrowserVoice(target: VoiceTarget) {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) {
+      setVoiceError('Voice input is not available in this browser — please type instead.');
+      resetVoicePress();
+      return;
+    }
+    try {
+      const recog = new Ctor();
+      recog.interimResults = false;
+      recog.maxAlternatives = 1;
+      recog.onresult = (event: any) => {
+        const text: string = event?.results?.[0]?.[0]?.transcript ?? '';
+        if (text.trim()) fillTranscript(target, text.trim());
+      };
+      recog.onerror = () => {
+        setVoiceError('Could not hear that — please try again or type instead.');
+      };
+      recog.onend = () => {
+        recogRef.current = null;
+      };
+      recogRef.current = recog;
+      recog.start();
+      maxTimerRef.current = window.setTimeout(() => endVoicePress(), 30000);
+    } catch {
+      setVoiceError('Voice input is not available in this browser — please type instead.');
+      resetVoicePress();
+    }
+  }
+
+  async function startRecordingVoice(target: VoiceTarget) {
+    try {
+      if (
+        typeof MediaRecorder === 'undefined' ||
+        !navigator.mediaDevices?.getUserMedia
+      ) {
+        throw new Error('no recorder');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (pressedRef.current !== target) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      voiceStreamRef.current = stream;
+      chunksRef.current = [];
+      const mimeType =
+        typeof MediaRecorder.isTypeSupported === 'function' &&
+        MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : '';
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (e: BlobEvent) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.start();
+      maxTimerRef.current = window.setTimeout(() => endVoicePress(), 30000);
+    } catch {
+      // Recording unavailable (denied or unsupported) — try browser recognition
+      // while the user is still holding.
+      startBrowserVoice(target);
+    }
+  }
+
+  async function onVoicePress(target: VoiceTarget) {
+    if (pressedRef.current !== null || voiceBusy) return;
+    pressedRef.current = target;
+    setVoiceTarget(target);
+    setVoiceError(null);
+    if (preferBrowserRef.current) {
+      startBrowserVoice(target);
+      return;
+    }
+    if (availRef.current === null) {
+      try {
+        availRef.current = await checkTranscribeAvailable();
+      } catch {
+        availRef.current = false;
+      }
+      if (pressedRef.current !== target) return;
+    }
+    if (availRef.current) startRecordingVoice(target);
+    else startBrowserVoice(target);
+  }
+
+  function endVoicePress() {
+    const target = pressedRef.current;
+    if (!target || voiceBusy) return;
+    window.clearTimeout(maxTimerRef.current);
+    pressedRef.current = null;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      // Keep voiceTarget set so the busy indicator stays on this button.
+      setVoiceBusy(true);
+      recorder.onstop = () => {
+        recorderRef.current = null;
+        stopVoiceTracks();
+        const blob = new Blob(chunksRef.current);
+        chunksRef.current = [];
+        void transcribeRecording(target, blob);
+      };
+      recorder.stop();
+      return;
+    }
+    setVoiceTarget(null);
+    const recog = recogRef.current;
+    if (recog) {
+      try {
+        recog.stop();
+      } catch {
+        recogRef.current = null;
+      }
+    }
+  }
+
+  async function transcribeRecording(target: VoiceTarget, blob: Blob) {
+    try {
+      if (!blob.size) {
+        setVoiceError('Nothing was recorded — please try again or type instead.');
+        return;
+      }
+      const wav = await blobToWav24kMono(blob);
+      if (!wav) throw new Error('convert failed');
+      const base64 = await blobToBase64(wav);
+      if (!base64) throw new Error('convert failed');
+      const text = await transcribeAudio(base64);
+      fillTranscript(target, text);
+    } catch {
+      preferBrowserRef.current = true;
+      if (getSpeechRecognitionCtor()) {
+        setVoiceError(
+          'Server transcription failed — hold again to use browser recognition, or type instead.',
+        );
+      } else {
+        setVoiceError('Voice transcription failed — please type instead.');
+      }
+    } finally {
+      setVoiceBusy(false);
+      setVoiceTarget(null);
+    }
   }
 
   async function onCheck() {
@@ -485,6 +766,24 @@ export default function Door1() {
             />
           </label>
 
+          <div className="flex items-center gap-2">
+            <MicButton
+              label="Hold to dictate the message"
+              state={
+                voiceTarget === 'message'
+                  ? voiceBusy
+                    ? 'busy'
+                    : 'active'
+                  : 'idle'
+              }
+              onPress={() => onVoicePress('message')}
+              onRelease={endVoicePress}
+            />
+            <p className="text-xs text-slate-500">
+              Your voice is transcribed and discarded — nothing is stored.
+            </p>
+          </div>
+
           <label className="block">
             <span className="mb-1 block text-sm font-semibold">
               2. Upload a screenshot <span className="font-normal text-slate-500">(optional)</span>
@@ -516,6 +815,23 @@ export default function Door1() {
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
             />
           </label>
+
+          <div className="flex items-center gap-2">
+            <MicButton
+              label="Hold to dictate the call description"
+              state={
+                voiceTarget === 'call' ? (voiceBusy ? 'busy' : 'active') : 'idle'
+              }
+              onPress={() => onVoicePress('call')}
+              onRelease={endVoicePress}
+            />
+          </div>
+
+          {voiceError && (
+            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+              {voiceError}
+            </p>
+          )}
 
           <button
             type="button"
