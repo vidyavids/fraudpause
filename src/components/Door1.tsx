@@ -1543,8 +1543,11 @@ export default function Door1() {
                   </>
                 ) : (
                   <p className="py-2 text-center text-sm text-slate-500">
-                    Point your camera at the QR sticker and it decodes live, in
-                    your browser.
+                    Hold steady, about 10 cm away, in good light.
+                  </p>
+                  <p className="text-center text-xs text-slate-500">
+                    If it won&apos;t lock on, move closer or farther, avoid
+                    glare, or use Upload photo instead.
                   </p>
                 )}
                 <canvas ref={scanCanvasRef} className="hidden" aria-hidden="true" />

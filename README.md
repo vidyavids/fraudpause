@@ -14,7 +14,7 @@ https://fraudpause.vercel.app/ — public, no sign-in required.
 
 **Door 1 — Check before you pay**
 
-- Paste/screenshot/call check: paste a text or email, attach a screenshot, or describe a call; get a verdict card (Likely scam / Suspicious — slow down / Looks consistent with legitimate) with red flags, what to do now, and what to say.
+- Paste/screenshot/call check: paste a text or email, attach a screenshot, or describe a call; get a verdict card (Likely scam / Suspicious — slow down / No red flags found) with red flags, what to do now, and what to say.
 - WhatsApp-forward check: paste a forwarded WhatsApp message; the verdict renders as FraudPause's reply in a chat thread.
 - SMS screening simulation: a mock inbox of sample messages with flags pre-applied, as if screened on arrival. Tap a message to see why it was flagged.
 - QR-photo check: photograph a QR sticker (upload or live camera); the QR is decoded on-device and the hidden link is checked, with a vision tamper check (sticker edges, peeling, misalignment). FraudPause never confirms a sticker QR as genuine.
@@ -69,7 +69,7 @@ Without a key anywhere, the app serves clearly-labeled MOCK verdicts, so the dem
 
 ## Honesty note
 
-Built entirely during the Meta Global AI Developer Hackathon (Oct 26–Nov 4, 2026); no pre-existing code.
+Built entirely during the Meta Global AI Developer Hackathon (Oct 26–Nov 4, 2026); no pre-existing code. The fraud knowledge base was drafted Oct 23–24 and reviewed and finalised into the app during the event.
 
 ## Demo video
 
