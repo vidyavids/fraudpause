@@ -49,6 +49,28 @@ const verdictStyles: Record<string, string> = {
   'Looks consistent with legitimate': 'bg-emerald-700 text-white',
 };
 
+function ReportItRow() {
+  return (
+    <p className="mt-3 text-sm">
+      <span className="font-bold">Report it: </span>
+      <a
+        href="https://reportfraud.ftc.gov"
+        target="_blank"
+        rel="noreferrer"
+        className="underline"
+      >
+        reportfraud.ftc.gov
+      </a>
+      {' · '}
+      <a href="https://www.ic3.gov" target="_blank" rel="noreferrer" className="underline">
+        ic3.gov
+      </a>
+      {' · '}
+      your bank&apos;s fraud line — the number on your card
+    </p>
+  );
+}
+
 function VerdictCard({ result }: { result: VerdictResult }) {
   return (
     <section aria-label="Verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -101,23 +123,7 @@ function VerdictCard({ result }: { result: VerdictResult }) {
         </p>
       )}
 
-      <p className="mt-3 text-sm">
-        <span className="font-bold">Report it: </span>
-        <a
-          href="https://reportfraud.ftc.gov"
-          target="_blank"
-          rel="noreferrer"
-          className="underline"
-        >
-          reportfraud.ftc.gov
-        </a>
-        {' · '}
-        <a href="https://www.ic3.gov" target="_blank" rel="noreferrer" className="underline">
-          ic3.gov
-        </a>
-        {' · '}
-        your bank&apos;s fraud line — the number on your card
-      </p>
+      {result.verdict !== 'Looks consistent with legitimate' && <ReportItRow />}
 
       <p className="mt-3 text-xs text-slate-500">
         This is guidance, not a guarantee — verify through official channels.
@@ -280,23 +286,7 @@ function PaymentVerdictCard({
         {OUTCOME_STEP[outcome]}
       </p>
 
-      <p className="mt-3 text-sm">
-        <span className="font-bold">Report it: </span>
-        <a
-          href="https://reportfraud.ftc.gov"
-          target="_blank"
-          rel="noreferrer"
-          className="underline"
-        >
-          reportfraud.ftc.gov
-        </a>
-        {' · '}
-        <a href="https://www.ic3.gov" target="_blank" rel="noreferrer" className="underline">
-          ic3.gov
-        </a>
-        {' · '}
-        your bank&apos;s fraud line — the number on your card
-      </p>
+      {outcome !== 'PROCEED' && <ReportItRow />}
 
       <p className="mt-3 text-xs text-slate-500">
         This is guidance, not a guarantee — verify through official channels.
@@ -1101,11 +1091,14 @@ export default function Door1() {
               {alreadySent ? 'Hide the aftermath checklist' : 'I already sent it — what now?'}
             </button>
             {alreadySent && (
-              <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">
-                {AFTERMATH_CHECKLIST.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
+              <>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm">
+                  {AFTERMATH_CHECKLIST.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                <ReportItRow />
+              </>
             )}
           </div>
 
