@@ -45,12 +45,19 @@ npm run build   # typecheck + production build
 
 ## Environment variable
 
-`META_API_KEY` — get a key at https://dev.meta.ai/api-keys.
+`META_API_KEY` — get your own key at https://dev.meta.ai/api-keys.
 
-- Locally: put it in a `.env` file (never commit it; `.gitignore` already excludes `.env`).
-- Deployed: add it in Vercel's Environment Variables (Production + Preview).
+To supply the key locally:
 
-Without a key the app serves clearly-labeled MOCK verdicts, so the demo is verifiable even without a key; with a key it serves live Muse Spark verdicts.
+```bash
+cp .env.example .env
+```
+
+(Windows PowerShell: `copy .env.example .env`.) Then open `.env` and set `META_API_KEY` to your key. **Never commit your key** — `.env` is already in `.gitignore`; only `.env.example` (key left blank) belongs in the repo.
+
+For the deployed site, add the same key in Vercel's Environment Variables (Production + Preview) and redeploy.
+
+Without a key anywhere, the app serves clearly-labeled MOCK verdicts, so the demo is verifiable even without a key; with a key it serves live Muse Spark verdicts. Note: plain `npm run dev` has no local API route, so it always shows MOCK verdicts — use `vercel dev` for the live path on your machine, or judge the live verdicts on the deployed site.
 
 ## Privacy design
 

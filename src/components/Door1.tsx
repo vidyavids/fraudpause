@@ -40,7 +40,7 @@ import {
   type PaymentMethod,
   type PaymentOutcome,
 } from '../lib/payment';
-import { splitCautions } from '../lib/cautions';
+import { mergeCautions, splitCautions } from '../lib/cautions';
 
 const AFTERMATH_CHECKLIST = [
   'Call your bank NOW using the number on your card — ask to freeze, recall, or dispute the payment.',
@@ -93,7 +93,8 @@ function VerdictCard({
     result.verdict === 'Looks consistent with legitimate' && greenBadgeText
       ? greenBadgeText
       : result.verdict;
-  const { indicators, cautions } = splitCautions(result.redFlags);
+  const { indicators, cautions: derived } = splitCautions(result.redFlags);
+  const cautions = mergeCautions(result.cautions, derived);
   return (
     <section aria-label="Verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <span
@@ -256,7 +257,8 @@ function PaymentVerdictCard({
   outcome: PaymentOutcome;
   normals: string[];
 }) {
-  const { indicators: flags, cautions } = splitCautions(result.redFlags);
+  const { indicators: flags, cautions: derived } = splitCautions(result.redFlags);
+  const cautions = mergeCautions(result.cautions, derived);
   return (
     <section aria-label="Payment verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -356,8 +358,9 @@ function QrVerdictCard({
   const {
     concerns,
     appearanceNotes: flagNotes,
-    cautions,
+    cautions: derived,
   } = splitQrFlags(result.redFlags);
+  const cautions = mergeCautions(result.cautions, derived);
   const { actions, appearanceNotes: doNotes } = splitQrDoNow(result.whatToDo);
   const appearanceNotes = [...flagNotes, ...doNotes];
   const shortened = isShortenedUrl(decodedUrl);

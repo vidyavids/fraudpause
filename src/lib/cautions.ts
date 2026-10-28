@@ -19,6 +19,7 @@ const METHOD_LIMITS = [
   /no (way|history|basis) to (compare|verify|confirm)/i,
   /limited (information|context|data|history)/i,
   /cannot (verify|confirm|validate|check|assess|determine)/i,
+  /can('t|not) (verify|confirm|validate|check|assess|determine)/i,
   /unable to (verify|confirm|validate|check|assess|determine)/i,
   /could not (verify|confirm|assess|determine)/i,
 ];
@@ -43,7 +44,11 @@ const CONDITIONAL_CHECKS = [
 ];
 
 // Missing identifiers that limit attribution, not findings of fraud.
-const MISSING_IDENTITY = [/no (company|business) name/i];
+const MISSING_IDENTITY = [
+  /no (company|business) name/i,
+  /nickname/i,
+  /vague (sender|payee)( name)?/i,
+];
 
 // Method properties: true of the rail itself, not findings about this input.
 const METHOD_PROPERTIES = [
@@ -57,6 +62,7 @@ const METHOD_PROPERTIES = [
 const THIN_INPUT = [
   /\bbrief\b[^.]{0,20}\b(context|details|description|information)\b/i,
   /\b(context|details|description|information)\b[^.]{0,20}\bbrief\b/i,
+  /very short (context|details|description|information|message)/i,
 ];
 
 // General QR warnings: true of QR stickers in general, not findings here.
@@ -70,6 +76,8 @@ const CAUTION_NOTE_PREFIX = /^\s*(photo note|limitation|caveat|heads-up)\s*:/i;
 
 export function isCaution(line: string): boolean {
   if (SCOPE_STATEMENTS.some((re) => re.test(line))) return true;
+  // Impersonation language marks a genuine indicator, never a caution.
+  if (/\b(impersonat|spoof|lookalike|mismatch)/i.test(line)) return false;
   // Contrastive lines ("looks fine but the link is suspicious") stay indicators.
   if (/\b(but|however|although|though|whereas)\b/i.test(line)) return false;
   return (
@@ -95,4 +103,9 @@ export function splitCautions(redFlags: string[]): {
     (isCaution(line) ? cautions : indicators).push(line);
   }
   return { indicators, cautions };
+}
+
+/** Merge engine-returned cautions with classifier-caught ones, deduped. */
+export function mergeCautions(...lists: string[][]): string[] {
+  return [...new Set(lists.flat())];
 }

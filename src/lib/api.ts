@@ -6,6 +6,7 @@ export type VerdictLabel =
 export interface VerdictResult {
   verdict: VerdictLabel;
   redFlags: string[];
+  cautions: string[];
   whatToDo: string[];
   whatToSay: string[];
   note?: string;
@@ -80,6 +81,7 @@ export function localMockVerdict(input: VerdictInput): VerdictResult {
         'Urgency or secrecy pressure is a classic scam marker.',
         'Requests for codes, passwords, or remote access never come from a real bank.',
       ],
+      cautions: [],
       whatToDo: [
         'Stop. Do not click, reply, or send money.',
         FALLBACK_LINE,
@@ -101,6 +103,7 @@ export function localMockVerdict(input: VerdictInput): VerdictResult {
         `Mentions sensitive topics: ${suspiciousHits.slice(0, 4).join(', ')}.`,
         'Could be legitimate, but the same wording is common in scams.',
       ],
+      cautions: [],
       whatToDo: [
         FALLBACK_LINE,
         'Do not use contact details from the message — look them up yourself.',
@@ -121,6 +124,7 @@ export function localMockVerdict(input: VerdictInput): VerdictResult {
       'No known scam signals detected — but new scams appear daily.',
       'Outside-KB input: treat with the same caution as an unknown message.',
     ],
+    cautions: [],
     whatToDo: [
       FALLBACK_LINE,
       'If money is involved, confirm the request through a second channel you trust.',

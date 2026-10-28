@@ -18,6 +18,7 @@ type VerdictLabel =
 interface VerdictResult {
   verdict: VerdictLabel;
   redFlags: string[];
+  cautions: string[];
   whatToDo: string[];
   whatToSay: string[];
   note?: string;
@@ -41,6 +42,7 @@ function scrubVerdict(v: VerdictResult): VerdictResult {
   return {
     ...v,
     redFlags: v.redFlags.map(scrub),
+    cautions: v.cautions.map(scrub),
     whatToDo: v.whatToDo.map(scrub),
     whatToSay: v.whatToSay.map(scrub),
     note: v.note ? scrub(v.note) : v.note,
@@ -102,6 +104,7 @@ function mockVerdict(input: {
       whatToSay: [
         '"I will hang up and call my bank directly using the number on my card."',
       ],
+      cautions: [],
       note: 'MOCK verdict — set META_API_KEY for a live Muse Spark check.',
       mock: true,
     });
@@ -121,6 +124,7 @@ function mockVerdict(input: {
       whatToSay: [
         '"I need to verify this independently before I do anything."',
       ],
+      cautions: [],
       note: 'MOCK verdict — set META_API_KEY for a live Muse Spark check.',
       mock: true,
     });
@@ -139,13 +143,14 @@ function mockVerdict(input: {
     whatToSay: [
       '"Thanks — I will confirm this through the official channel."',
     ],
+    cautions: [],
     note: 'MOCK verdict — set META_API_KEY for a live Muse Spark check.',
     mock: true,
   });
 }
 
-const SYSTEM_PROMPT = `You are FraudPause, a scam-detection helper. Classify the user's suspicious message/call into exactly one verdict: "Likely scam", "Suspicious — slow down", or "Looks consistent with legitimate". Reply with JSON only: {"verdict": "...", "redFlags": [..], "whatToDo": [..], "whatToSay": [..]}.
-Rules: never write "100% safe" or "harmless" — no outcome is ever certain. If the input is outside your knowledge, include this exact line in whatToDo: "${FALLBACK_LINE}" Keep lists short (2-4 items each), plain language, mobile-friendly.`;
+const SYSTEM_PROMPT = `You are FraudPause, a scam-detection helper. Classify the user's suspicious message/call into exactly one verdict: "Likely scam", "Suspicious — slow down", or "Looks consistent with legitimate". Reply with JSON only: {"verdict": "...", "redFlags": [..], "cautions": [..], "whatToDo": [..], "whatToSay": [..]}.
+Rules: never write "100% safe" or "harmless" — no outcome is ever certain. "redFlags" holds only actual fraud indicators (changed payment details, urgency plus secrecy pressure, impersonation markers, a mismatched or lookalike destination). Everything else — identity uncertainty (nickname-like payee, vague sender name), input limits (very short context, brief details), method limits (wire/Zelle hard to reverse), photo limits (tight crop, can't check overlay) — goes in "cautions". When no genuine flag exists, "redFlags" is []. If the input is outside your knowledge, include this exact line in whatToDo: "${FALLBACK_LINE}" Keep lists short (2-4 items each), plain language, mobile-friendly.`;
 
 /**
  * Pull the assistant message text out of a chat-completions response.
@@ -268,10 +273,11 @@ export default async function handler(req: any, res: any) {
                   ],
                 },
                 redFlags: { type: 'array', items: { type: 'string' } },
+                cautions: { type: 'array', items: { type: 'string' } },
                 whatToDo: { type: 'array', items: { type: 'string' } },
                 whatToSay: { type: 'array', items: { type: 'string' } },
               },
-              required: ['verdict', 'redFlags', 'whatToDo', 'whatToSay'],
+              required: ['verdict', 'redFlags', 'cautions', 'whatToDo', 'whatToSay'],
             },
           },
         },
@@ -328,6 +334,7 @@ export default async function handler(req: any, res: any) {
       scrubVerdict({
         verdict: parsed.verdict,
         redFlags: (parsed.redFlags ?? []).slice(0, 6).map(String),
+        cautions: (parsed.cautions ?? []).slice(0, 6).map(String),
         whatToDo: (parsed.whatToDo ?? []).slice(0, 6).map(String),
         whatToSay: (parsed.whatToSay ?? []).slice(0, 6).map(String),
         mock: false,
