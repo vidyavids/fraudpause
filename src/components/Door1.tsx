@@ -1288,8 +1288,9 @@ export default function Door1() {
       {mode === 'whatsapp' && (
         <>
           <p className="text-sm text-slate-600">
-            In the full shield, you&apos;d forward this to FraudPause on
-            WhatsApp — here, paste it to see the same check.
+            Simulation: WhatsApp messages are end-to-end encrypted and
+            can&apos;t be screened automatically, so you forward one message to
+            check it — here, paste it to see the same check.
           </p>
 
           <div aria-label="WhatsApp check thread" className="space-y-3 rounded-xl bg-slate-100 p-3">
