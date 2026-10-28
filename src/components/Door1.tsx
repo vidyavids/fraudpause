@@ -1322,7 +1322,7 @@ export default function Door1() {
             SMS, so iPhone users check messages by forwarding them or with the
             app check. Screened messages are not kept in our database; our AI
             provider processes them to produce your result. Here, tap a message
-            to see why it was flagged.
+            to see its check.
           </p>
 
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
