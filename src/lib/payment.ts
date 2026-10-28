@@ -50,7 +50,7 @@ export const OUTCOME_TEXT: Record<PaymentOutcome, { title: string; detail: strin
   },
   PROCEED: {
     title: 'PROCEED',
-    detail: 'No red flags found (still verify with normal caution — never "safe to pay")',
+    detail: 'No red flags found. Still verify with normal caution before paying.',
   },
 };
 
@@ -117,7 +117,7 @@ export function paymentNormals(form: PaymentForm): string[] {
     form.context.trim() &&
     !PRESSURE_WORDS.some((w) => context.includes(w))
   ) {
-    out.push('No urgency or secrecy pressure described.');
+    out.push('No urgency or secrecy described.');
   }
   out.push(
     `Amount ($${form.amount.toFixed(2)}) sets the stakes — amounts alone are not a flag.`,

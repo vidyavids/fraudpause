@@ -373,7 +373,7 @@ function QrVerdictCard({
       >
         {badge}
       </span>
-      <p className="mt-2 text-sm font-semibold">{QR_SAFETY_LINE}</p>
+      {isGreen && <p className="mt-2 text-sm font-semibold">{QR_SAFETY_LINE}</p>}
       {result.mock && result.note && (
         <p className="mt-2 text-xs text-slate-500">{result.note}</p>
       )}
