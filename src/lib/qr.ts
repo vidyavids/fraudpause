@@ -195,6 +195,15 @@ export function splitQrFlags(redFlags: string[]): {
   return { concerns, appearanceNotes };
 }
 
+/**
+ * Build the QR message sent to the verdict engine: the decoded link plus
+ * prompt-level constraints (say-lines stay domain/verification-only and
+ * never assert the sticker looks normal, original, or genuine).
+ */
+export function buildQrMessage(decodedUrl: string): string {
+  return `Photo of a QR sticker. The QR code decodes to this link: ${decodedUrl}\nWhat-to-say lines must only ask the user to verify the domain or link through official channels (for example, whether the decoded domain is the official one). Never assert that the sticker looks normal, original, or genuine.`;
+}
+
 /** Best-effort hostname from decoded QR text (adds https:// when missing). */
 export function extractHostname(text: string): string | null {
   const t = text.trim();
@@ -258,12 +267,35 @@ export function isShortenedUrl(text: string): boolean {
 }
 
 /**
+ * Split do-now steps the same way: appearance observations ("no tamper seen")
+ * move to notes; actions stay. The ceiling is always an action, never moved.
+ */
+export function splitQrDoNow(whatToDo: string[]): {
+  actions: string[];
+  appearanceNotes: string[];
+} {
+  const actions: string[] = [];
+  const appearanceNotes: string[] = [];
+  for (const s of whatToDo) {
+    if (s === QR_CEILING || !isAppearanceNote(s)) actions.push(s);
+    else appearanceNotes.push(s);
+  }
+  return { actions, appearanceNotes };
+}
+
+const SAY_NORMALITY =
+  /\blook(s|ed)?\b[^.]{0,20}\b(normal|original|genuine|legitimate|authentic)\b/i;
+
+/**
  * QR say-lines: drop originality questions ("is this the original sticker")
- * in favor of a domain-focused confirmation built from the decoded link.
- * All other engine lines (including the official-support-link line) pass through.
+ * and normality assertions ("looks like the normal sticker") in favor of a
+ * domain-focused confirmation built from the decoded link. All other engine
+ * lines (including the official-support-link line) pass through.
  */
 export function qrSayLines(whatToSay: string[], decodedUrl: string): string[] {
-  const kept = whatToSay.filter((s) => !/original/i.test(s));
+  const kept = whatToSay.filter(
+    (s) => !/original/i.test(s) && !SAY_NORMALITY.test(s),
+  );
   if (!kept.some((s) => /domain/i.test(s))) {
     const hostname = extractHostname(decodedUrl);
     kept.push(

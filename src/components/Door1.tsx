@@ -18,12 +18,14 @@ import {
   SHORTENER_BANNER,
   SHORTENER_FLAG,
   applyQrCeiling,
+  buildQrMessage,
   decodeCanvas,
   decodeQrFromFile,
   drawQrHighlight,
   fileToScreeningDataUrl,
   isShortenedUrl,
   qrSayLines,
+  splitQrDoNow,
   splitQrFlags,
 } from '../lib/qr';
 import {
@@ -324,7 +326,9 @@ function QrVerdictCard({
 }) {
   const isGreen = result.verdict === 'Looks consistent with legitimate';
   const badge = isGreen ? 'No red flags found' : result.verdict;
-  const { concerns, appearanceNotes } = splitQrFlags(result.redFlags);
+  const { concerns, appearanceNotes: flagNotes } = splitQrFlags(result.redFlags);
+  const { actions, appearanceNotes: doNotes } = splitQrDoNow(result.whatToDo);
+  const appearanceNotes = [...flagNotes, ...doNotes];
   const shortened = isShortenedUrl(decodedUrl);
   const flags =
     shortened && !concerns.some((f) => /shorten|redirect|final destination/i.test(f))
@@ -370,7 +374,7 @@ function QrVerdictCard({
 
       <h3 className="mt-3 text-sm font-bold">What to do now</h3>
       <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-        {result.whatToDo.map((f) => (
+        {actions.map((f) => (
           <li key={f}>{f}</li>
         ))}
       </ul>
@@ -866,7 +870,7 @@ export default function Door1() {
     try {
       // Same verdict engine as the other modes — no new backend.
       const verdict = await requestVerdict({
-        messageText: `Photo of a QR sticker. The QR code decodes to this link: ${qrDecoded}`,
+        messageText: buildQrMessage(qrDecoded),
         callDescription: '',
         hasScreenshot: false,
         imageDataUrl: qrScreeningImage ?? undefined,
@@ -1013,7 +1017,7 @@ export default function Door1() {
     try {
       // Same verdict engine as the other modes — no new backend.
       const verdict = await requestVerdict({
-        messageText: `Photo of a QR sticker. The QR code decodes to this link: ${camDecoded}`,
+        messageText: buildQrMessage(camDecoded),
         callDescription: '',
         hasScreenshot: false,
         imageDataUrl: camFrame ?? undefined,
