@@ -19,6 +19,19 @@ import {
   decodeQrFromFile,
   fileToScreeningDataUrl,
 } from '../lib/qr';
+import {
+  OUTCOME_STEP,
+  OUTCOME_TEXT,
+  PAYMENT_METHODS,
+  buildPaymentMessage,
+  genuineRedFlags,
+  outcomeForVerdict,
+  paymentNormals,
+  type PayeeFamiliarity,
+  type PaymentForm,
+  type PaymentMethod,
+  type PaymentOutcome,
+} from '../lib/payment';
 
 const AFTERMATH_CHECKLIST = [
   'Call your bank NOW using the number on your card — ask to freeze, recall, or dispute the payment.',
@@ -155,6 +168,114 @@ function MicButton({
   );
 }
 
+const outcomeStyles: Record<PaymentOutcome, string> = {
+  STOP: 'bg-red-700 text-white',
+  PAUSE: 'bg-amber-500 text-slate-950',
+  PROCEED: 'bg-emerald-700 text-white',
+};
+
+function PaymentVerdictCard({
+  result,
+  outcome,
+  normals,
+}: {
+  result: VerdictResult;
+  outcome: PaymentOutcome;
+  normals: string[];
+}) {
+  const flags = genuineRedFlags(outcome, result.redFlags);
+  return (
+    <section aria-label="Payment verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-block rounded-full px-3 py-1 text-sm font-bold ${outcomeStyles[outcome]}`}
+        >
+          {OUTCOME_TEXT[outcome].title}
+        </span>
+        <span className="text-sm font-semibold">{OUTCOME_TEXT[outcome].detail}</span>
+      </div>
+      {result.mock && result.note && (
+        <p className="mt-2 text-xs text-slate-500">{result.note}</p>
+      )}
+
+      <h3 className="mt-3 text-sm font-bold">Red flags</h3>
+      {flags.length > 0 ? (
+        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+          {flags.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm text-slate-600">None.</p>
+      )}
+
+      <h3 className="mt-3 text-sm font-bold">Checked and found normal</h3>
+      {normals.length > 0 ? (
+        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+          {normals.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm text-slate-600">None.</p>
+      )}
+
+      <h3 className="mt-3 text-sm font-bold">What to do now</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        {result.whatToDo.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+
+      <h3 className="mt-3 text-sm font-bold">What to say</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        {result.whatToSay.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+
+      {typeof window !== 'undefined' && 'speechSynthesis' in window && (
+        <button
+          type="button"
+          onClick={() =>
+            speakText(`${OUTCOME_TEXT[outcome].title}. ${OUTCOME_STEP[outcome]}`)
+          }
+          className="mt-3 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
+        >
+          Hear this verdict
+        </button>
+      )}
+
+      <p className="mt-3 text-sm">
+        <span className="font-bold">Your next step: </span>
+        {OUTCOME_STEP[outcome]}
+      </p>
+
+      <p className="mt-3 text-sm">
+        <span className="font-bold">Report it: </span>
+        <a
+          href="https://reportfraud.ftc.gov"
+          target="_blank"
+          rel="noreferrer"
+          className="underline"
+        >
+          reportfraud.ftc.gov
+        </a>
+        {' · '}
+        <a href="https://www.ic3.gov" target="_blank" rel="noreferrer" className="underline">
+          ic3.gov
+        </a>
+        {' · '}
+        your bank&apos;s fraud line — the number on your card
+      </p>
+
+      <p className="mt-3 text-xs text-slate-500">
+        This is guidance, not a guarantee — verify through official channels.
+      </p>
+    </section>
+  );
+}
+
 function PrivacyLine() {
   return (
     <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
@@ -164,7 +285,7 @@ function PrivacyLine() {
   );
 }
 
-type InputMode = 'standard' | 'whatsapp' | 'sms' | 'qr';
+type InputMode = 'standard' | 'whatsapp' | 'sms' | 'qr' | 'payment';
 
 interface SampleSms {
   id: string;
@@ -270,6 +391,19 @@ export default function Door1() {
   const availRef = useRef<boolean | null>(null);
   const preferBrowserRef = useRef(false);
   const maxTimerRef = useRef(0);
+
+  const [payPayee, setPayPayee] = useState('');
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState<PaymentMethod>('Bank transfer / wire');
+  const [payFamiliarity, setPayFamiliarity] = useState<PayeeFamiliarity | null>(null);
+  const [payContext, setPayContext] = useState('');
+  const [payLoading, setPayLoading] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [payResult, setPayResult] = useState<{
+    result: VerdictResult;
+    outcome: PaymentOutcome;
+    normals: string[];
+  } | null>(null);
 
   // Screen every sample message on arrival — automatically, before the user
   // opens the inbox — through the same verdict engine as the other modes.
@@ -665,6 +799,50 @@ export default function Door1() {
     }
   }
 
+  async function onPaymentCheck() {
+    setPayError(null);
+    setPayResult(null);
+    const payee = payPayee.trim();
+    const amount = Number(payAmount);
+    if (!payee) {
+      setPayError('Enter the payee name first.');
+      return;
+    }
+    if (!payAmount.trim() || !isFinite(amount) || amount <= 0) {
+      setPayError('Enter a valid amount in USD (more than 0).');
+      return;
+    }
+    if (!payFamiliarity) {
+      setPayError('Tell us whether this payee is new, changed, or known.');
+      return;
+    }
+    const form: PaymentForm = {
+      payee,
+      amount,
+      method: payMethod,
+      familiarity: payFamiliarity,
+      context: payContext,
+    };
+    setPayLoading(true);
+    try {
+      // Same verdict engine as the other modes — no new backend.
+      const verdict = await requestVerdict({
+        messageText: buildPaymentMessage(form),
+        callDescription: '',
+        hasScreenshot: false,
+      });
+      setPayResult({
+        result: verdict,
+        outcome: outcomeForVerdict(verdict.verdict),
+        normals: paymentNormals(form),
+      });
+    } catch {
+      setPayError(`${FALLBACK_LINE} (The check failed — stay paused.)`);
+    } finally {
+      setPayLoading(false);
+    }
+  }
+
   async function onCamCheck() {
     setCamError(null);
     setQrResult(null);
@@ -691,7 +869,7 @@ export default function Door1() {
 
   return (
     <div className="space-y-4">
-      <div role="tablist" aria-label="Input mode" className="flex gap-2 text-sm">
+      <div role="tablist" aria-label="Input mode" className="flex flex-wrap gap-2 text-sm">
         <button
           type="button"
           role="tab"
@@ -743,6 +921,19 @@ export default function Door1() {
           }`}
         >
           QR-photo check
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'payment'}
+          onClick={() => setMode('payment')}
+          className={`rounded-full px-3 py-1 font-semibold ${
+            mode === 'payment'
+              ? 'bg-slate-900 text-white'
+              : 'bg-slate-100 text-slate-700'
+          }`}
+        >
+          Payment check
         </button>
       </div>
 
@@ -1179,6 +1370,123 @@ export default function Door1() {
           )}
 
           {qrResult && <VerdictCard result={qrResult} />}
+
+          <PrivacyLine />
+        </>
+      )}
+
+      {mode === 'payment' && (
+        <>
+          <p className="text-sm text-slate-600">
+            Check the payment before you send it — especially when the payee is
+            new or their details changed. FraudPause can&apos;t see your account
+            or stop a payment; it advises before you send.
+          </p>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">Payee name</span>
+            <input
+              type="text"
+              value={payPayee}
+              onChange={(e) => setPayPayee(e.target.value)}
+              placeholder="Who are you paying?"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">Amount in USD</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              placeholder="0.00"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">Payment method</span>
+            <select
+              value={payMethod}
+              onChange={(e) => setPayMethod(e.target.value as PaymentMethod)}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
+            >
+              {PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <fieldset className="block">
+            <legend className="mb-1 text-sm font-semibold">
+              Is this payee new, or have their payment details changed?
+            </legend>
+            <div className="flex flex-wrap gap-2 text-sm">
+              {(
+                [
+                  ['new', 'New payee'],
+                  ['changed', 'Details changed'],
+                  ['known', 'Known payee, same details'],
+                ] as Array<[PayeeFamiliarity, string]>
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={payFamiliarity === value}
+                  onClick={() => setPayFamiliarity(value)}
+                  className={`rounded-full px-3 py-1 font-semibold ${
+                    payFamiliarity === value
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold">
+              Anything else? <span className="font-normal text-slate-500">(optional)</span>
+            </span>
+            <textarea
+              value={payContext}
+              onChange={(e) => setPayContext(e.target.value)}
+              rows={3}
+              placeholder="Who asked you to pay, any urgency or secrecy…"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base shadow-sm focus:border-teal-700 focus:outline-none"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={onPaymentCheck}
+            disabled={payLoading}
+            className="w-full rounded-lg bg-teal-800 px-4 py-3 text-base font-semibold text-white shadow disabled:opacity-60"
+          >
+            {payLoading ? 'Checking…' : 'Check this payment'}
+          </button>
+
+          {payError && (
+            <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+              {payError}
+            </p>
+          )}
+
+          {payResult && (
+            <PaymentVerdictCard
+              result={payResult.result}
+              outcome={payResult.outcome}
+              normals={payResult.normals}
+            />
+          )}
 
           <PrivacyLine />
         </>
