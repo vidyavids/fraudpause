@@ -78,14 +78,27 @@ function ReportItRow() {
   );
 }
 
-function VerdictCard({ result }: { result: VerdictResult }) {
+function VerdictCard({
+  result,
+  greenBadgeText,
+  safetyLine,
+}: {
+  result: VerdictResult;
+  greenBadgeText?: string;
+  safetyLine?: string;
+}) {
+  const badge =
+    result.verdict === 'Looks consistent with legitimate' && greenBadgeText
+      ? greenBadgeText
+      : result.verdict;
   return (
     <section aria-label="Verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <span
         className={`inline-block rounded-full px-3 py-1 text-sm font-bold ${verdictStyles[result.verdict]}`}
       >
-        {result.verdict}
+        {badge}
       </span>
+      {safetyLine && <p className="mt-2 text-sm font-semibold">{safetyLine}</p>}
       {result.mock && result.note && (
         <p className="mt-2 text-xs text-slate-500">{result.note}</p>
       )}
@@ -115,7 +128,7 @@ function VerdictCard({ result }: { result: VerdictResult }) {
         <button
           type="button"
           onClick={() =>
-            speakText(`${result.verdict}. ${result.whatToDo[0] ?? ''}`)
+            speakText(`${badge}. ${result.whatToDo[0] ?? ''}`)
           }
           className="mt-3 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
         >
@@ -462,7 +475,7 @@ function smsBadge(verdict: VerdictResult['verdict']): { text: string; classes: s
   if (verdict === 'Likely scam') return { text: 'Likely scam', classes: 'bg-red-700 text-white' };
   if (verdict === 'Suspicious — slow down')
     return { text: 'Suspicious', classes: 'bg-amber-500 text-slate-950' };
-  return { text: 'Looks OK', classes: 'bg-emerald-700 text-white' };
+  return { text: 'No red flags found', classes: 'bg-emerald-700 text-white' };
 }
 
 export default function Door1() {
@@ -1300,8 +1313,12 @@ export default function Door1() {
         <>
           <p className="text-sm text-slate-600">
             With your permission, FraudPause screens SMS as it arrives — flags
-            appear automatically, no pasting needed. Here, tap a message to see
-            why it was flagged.
+            appear automatically, no pasting needed. Automatic screening works
+            on Android only; iPhones don&apos;t allow third-party apps to screen
+            SMS, so iPhone users check messages by forwarding them or with the
+            app check. Screened messages are not kept in our database; our AI
+            provider processes them to produce your result. Here, tap a message
+            to see why it was flagged.
           </p>
 
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -1357,7 +1374,11 @@ export default function Door1() {
           {selectedSmsId !== null &&
             smsVerdicts[selectedSmsId] !== undefined &&
             smsVerdicts[selectedSmsId] !== null && (
-              <VerdictCard result={smsVerdicts[selectedSmsId] as VerdictResult} />
+              <VerdictCard
+                result={smsVerdicts[selectedSmsId] as VerdictResult}
+                greenBadgeText="No red flags found"
+                safetyLine="No red flags doesn't mean safe. Verify before paying."
+              />
             )}
         </>
       )}
