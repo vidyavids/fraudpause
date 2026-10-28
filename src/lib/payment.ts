@@ -124,17 +124,3 @@ export function paymentNormals(form: PaymentForm): string[] {
   );
   return out;
 }
-
-const BOILERPLATE_FLAGS = [/no .*signals/i, /outside-kb/i];
-
-/**
- * Red flags for genuine concerns only: on a clean outcome, drop the engine's
- * boilerplate non-concern lines ("no signals detected", "outside-KB").
- */
-export function genuineRedFlags(
-  outcome: PaymentOutcome,
-  redFlags: string[],
-): string[] {
-  if (outcome !== 'PROCEED') return redFlags;
-  return redFlags.filter((f) => !BOILERPLATE_FLAGS.some((re) => re.test(f)));
-}

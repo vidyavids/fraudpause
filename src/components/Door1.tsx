@@ -33,7 +33,6 @@ import {
   OUTCOME_TEXT,
   PAYMENT_METHODS,
   buildPaymentMessage,
-  genuineRedFlags,
   outcomeForVerdict,
   paymentNormals,
   type PayeeFamiliarity,
@@ -41,6 +40,7 @@ import {
   type PaymentMethod,
   type PaymentOutcome,
 } from '../lib/payment';
+import { splitCautions } from '../lib/cautions';
 
 const AFTERMATH_CHECKLIST = [
   'Call your bank NOW using the number on your card — ask to freeze, recall, or dispute the payment.',
@@ -93,6 +93,7 @@ function VerdictCard({
     result.verdict === 'Looks consistent with legitimate' && greenBadgeText
       ? greenBadgeText
       : result.verdict;
+  const { indicators, cautions } = splitCautions(result.redFlags);
   return (
     <section aria-label="Verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <span
@@ -106,11 +107,26 @@ function VerdictCard({
       )}
 
       <h3 className="mt-3 text-sm font-bold">Red flags</h3>
-      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-        {result.redFlags.map((f) => (
-          <li key={f}>{f}</li>
-        ))}
-      </ul>
+      {indicators.length > 0 ? (
+        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+          {indicators.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm text-slate-600">None.</p>
+      )}
+
+      {cautions.length > 0 && (
+        <>
+          <h3 className="mt-3 text-sm font-bold">Cautions</h3>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+            {cautions.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </>
+      )}
 
       <h3 className="mt-3 text-sm font-bold">What to do now</h3>
       <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
@@ -240,7 +256,7 @@ function PaymentVerdictCard({
   outcome: PaymentOutcome;
   normals: string[];
 }) {
-  const flags = genuineRedFlags(outcome, result.redFlags);
+  const { indicators: flags, cautions } = splitCautions(result.redFlags);
   return (
     <section aria-label="Payment verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
@@ -264,6 +280,17 @@ function PaymentVerdictCard({
         </ul>
       ) : (
         <p className="mt-1 text-sm text-slate-600">None.</p>
+      )}
+
+      {cautions.length > 0 && (
+        <>
+          <h3 className="mt-3 text-sm font-bold">Cautions</h3>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+            {cautions.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </>
       )}
 
       <h3 className="mt-3 text-sm font-bold">Checked and found normal</h3>
@@ -326,7 +353,11 @@ function QrVerdictCard({
 }) {
   const isGreen = result.verdict === 'Looks consistent with legitimate';
   const badge = isGreen ? 'No red flags found' : result.verdict;
-  const { concerns, appearanceNotes: flagNotes } = splitQrFlags(result.redFlags);
+  const {
+    concerns,
+    appearanceNotes: flagNotes,
+    cautions,
+  } = splitQrFlags(result.redFlags);
   const { actions, appearanceNotes: doNotes } = splitQrDoNow(result.whatToDo);
   const appearanceNotes = [...flagNotes, ...doNotes];
   const shortened = isShortenedUrl(decodedUrl);
@@ -356,6 +387,17 @@ function QrVerdictCard({
         </ul>
       ) : (
         <p className="mt-1 text-sm text-slate-600">None.</p>
+      )}
+
+      {cautions.length > 0 && (
+        <>
+          <h3 className="mt-3 text-sm font-bold">Cautions</h3>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+            {cautions.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </>
       )}
 
       {appearanceNotes.length > 0 && (

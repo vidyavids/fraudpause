@@ -1,5 +1,6 @@
 import jsQR from 'jsqr';
 import { FALLBACK_LINE, type VerdictResult } from './api';
+import { isCaution } from './cautions';
 
 /**
  * Verdict ceiling for QR-sticker checks: FraudPause can never confirm a
@@ -183,16 +184,30 @@ export function isAppearanceNote(line: string): boolean {
   );
 }
 
+/**
+ * Appearance reassurances only ("no peeling", "factory-placed") — the subset
+ * of appearance notes that belong under "Checked and found normal". Photo
+ * limitations ("tight crop") are cautions and handled by the shared split.
+ */
+export function isAppearanceReassurance(line: string): boolean {
+  if (/\b(but|however|although|though|whereas)\b/i.test(line)) return false;
+  return APPEARANCE_REASSURE_NO.test(line) || APPEARANCE_LOOKS.test(line);
+}
+
 export function splitQrFlags(redFlags: string[]): {
   concerns: string[];
   appearanceNotes: string[];
+  cautions: string[];
 } {
   const concerns: string[] = [];
   const appearanceNotes: string[] = [];
+  const cautions: string[] = [];
   for (const line of redFlags) {
-    (isAppearanceNote(line) ? appearanceNotes : concerns).push(line);
+    if (isAppearanceReassurance(line)) appearanceNotes.push(line);
+    else if (isCaution(line)) cautions.push(line);
+    else concerns.push(line);
   }
-  return { concerns, appearanceNotes };
+  return { concerns, appearanceNotes, cautions };
 }
 
 /**
