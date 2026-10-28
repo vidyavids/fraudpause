@@ -26,18 +26,65 @@ export function applyQrCeiling(result: VerdictResult): VerdictResult {
   };
 }
 
+export interface QrPoint {
+  x: number;
+  y: number;
+}
+
+export interface QrLocation {
+  topLeftCorner: QrPoint;
+  topRightCorner: QrPoint;
+  bottomRightCorner: QrPoint;
+  bottomLeftCorner: QrPoint;
+}
+
+export interface QrDecode {
+  text: string;
+  /** Corner locations in the decoded canvas's own coordinates. */
+  location: QrLocation;
+}
+
 /** Decode a QR code from a canvas (used for live camera frames). */
-export function decodeCanvas(canvas: HTMLCanvasElement): string | null {
+export function decodeCanvas(canvas: HTMLCanvasElement): QrDecode | null {
   if (canvas.width === 0 || canvas.height === 0) return null;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
   try {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const found = jsQR(imageData.data, imageData.width, imageData.height);
-    return found ? found.data : null;
+    if (!found) return null;
+    const location = found.location as unknown as QrLocation;
+    return { text: found.data, location };
   } catch {
     return null;
   }
+}
+
+/** Stroke a highlight box around the decoded QR so users see which code was checked. */
+export function drawQrHighlight(canvas: HTMLCanvasElement, location: QrLocation): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const { topLeftCorner: tl, topRightCorner: tr, bottomRightCorner: br, bottomLeftCorner: bl } =
+    location;
+  const w = Math.max(3, Math.round(canvas.width / 150));
+  ctx.save();
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = w;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(tl.x, tl.y);
+  ctx.lineTo(tr.x, tr.y);
+  ctx.lineTo(br.x, br.y);
+  ctx.lineTo(bl.x, bl.y);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fillStyle = '#10b981';
+  for (const p of [tl, tr, br, bl]) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, w, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 /**
@@ -74,9 +121,12 @@ export function fileToScreeningDataUrl(file: File, maxDim = 768): Promise<string
 
 /**
  * Decode a QR code from a photo file using jsQR (pure image decoding, not AI).
- * Returns the decoded text (usually a URL), or null if no QR code is found.
+ * Returns the decoded text (usually a URL) plus a preview image with the
+ * decoded code highlighted — or null if no QR code is found.
  */
-export async function decodeQrFromFile(file: File): Promise<string | null> {
+export async function decodeQrFromFile(
+  file: File,
+): Promise<{ text: string; previewDataUrl: string } | null> {
   try {
     const bitmap = await createImageBitmap(file);
     try {
@@ -88,13 +138,139 @@ export async function decodeQrFromFile(file: File): Promise<string | null> {
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) return null;
       ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const result = jsQR(imageData.data, imageData.width, imageData.height);
-      return result ? result.data : null;
+      const decoded = decodeCanvas(canvas);
+      if (!decoded) return null;
+      drawQrHighlight(canvas, decoded.location);
+      return { text: decoded.text, previewDataUrl: canvas.toDataURL('image/jpeg', 0.85) };
     } finally {
       bitmap.close();
     }
   } catch {
     return null;
   }
+}
+
+/** Safety line shown on every QR result, whatever the verdict. */
+export const QR_SAFETY_LINE = "No red flags doesn't mean safe. Verify before paying.";
+
+/** Shortened-link warning: flag, never resolve. */
+export const SHORTENER_BANNER = "Shortened link \u2014 the final destination can't be confirmed.";
+export const SHORTENER_FLAG =
+  "Shortened link \u2014 the final destination can't be confirmed. It could point anywhere.";
+
+/**
+ * Split engine red flags into genuine concerns vs visual-appearance notes.
+ * Vision reassurances ("no peeling", "factory-placed") and photo-limitation
+ * notes ("tight crop only") are notes, never flags. Patterns are deliberately
+ * narrow: anything ambiguous stays a concern.
+ */
+const APPEARANCE_REASSURE_NO =
+  /\bno\b[^.]{0,40}\b(peeling|tamper(ing)?|damage|misalignment|cover-?ups?|double[_ -]?layers?|lifted|bubbles?|residue)\b/i;
+const APPEARANCE_LOOKS =
+  /\b(looks|appears|seems)\b[^.]{0,30}\b(factory[ -]?placed|original|intact|undamaged|normal|professionally? (applied|printed))\b/i;
+const APPEARANCE_LIMIT =
+  /\b(tight crop|cropped|limited (view|visibility|angle)|partial(ly)? (visible|obscured)|glare|blurr?y|low (quality|resolution)|cannot (assess|determine|verify|confirm)|unable to (assess|determine|verify|confirm)|could not (assess|determine)|hard to (see|tell))\b/i;
+const APPEARANCE_NOTE_PREFIX = /^\s*(photo note|limitation|caveat)\s*:/i;
+
+export function isAppearanceNote(line: string): boolean {
+  // Contrastive lines ("looks normal but the domain is wrong") stay concerns.
+  if (/\b(but|however|although|though|whereas)\b/i.test(line)) return false;
+  return (
+    APPEARANCE_REASSURE_NO.test(line) ||
+    APPEARANCE_LOOKS.test(line) ||
+    APPEARANCE_LIMIT.test(line) ||
+    APPEARANCE_NOTE_PREFIX.test(line)
+  );
+}
+
+export function splitQrFlags(redFlags: string[]): {
+  concerns: string[];
+  appearanceNotes: string[];
+} {
+  const concerns: string[] = [];
+  const appearanceNotes: string[] = [];
+  for (const line of redFlags) {
+    (isAppearanceNote(line) ? appearanceNotes : concerns).push(line);
+  }
+  return { concerns, appearanceNotes };
+}
+
+/** Best-effort hostname from decoded QR text (adds https:// when missing). */
+export function extractHostname(text: string): string | null {
+  const t = text.trim();
+  for (const candidate of [t, `https://${t}`]) {
+    try {
+      const host = new URL(candidate).hostname;
+      if (host && host.includes('.')) return host.toLowerCase();
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+const SHORTENER_HOSTS = [
+  'bit.ly',
+  'tinyurl.com',
+  't.co',
+  'goo.gl',
+  'ow.ly',
+  'is.gd',
+  'buff.ly',
+  'cutt.ly',
+  'rb.gy',
+  'shorturl.at',
+  'tiny.cc',
+  'rebrand.ly',
+  't.ly',
+];
+
+const REDIRECT_PATHS = [
+  /^\/redirect/i,
+  /^\/r(\/|$)/i,
+  /^\/out(\/|$)/i,
+  /^\/away/i,
+  /^\/go(\/|$)/i,
+  /^\/l\.php/i,
+  /^\/url\?/i,
+];
+
+/**
+ * True when the decoded link is shortened or redirect-patterned. The caller
+ * must flag, never resolve — no request is ever made to the link.
+ */
+export function isShortenedUrl(text: string): boolean {
+  const t = text.trim();
+  let parsed: URL | null = null;
+  for (const candidate of [t, `https://${t}`]) {
+    try {
+      parsed = new URL(candidate);
+      break;
+    } catch {
+      /* try next */
+    }
+  }
+  if (!parsed) return false;
+  const url: URL = parsed;
+  const host = url.hostname.toLowerCase();
+  if (SHORTENER_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return true;
+  return REDIRECT_PATHS.some((re) => re.test(url.pathname + url.search));
+}
+
+/**
+ * QR say-lines: drop originality questions ("is this the original sticker")
+ * in favor of a domain-focused confirmation built from the decoded link.
+ * All other engine lines (including the official-support-link line) pass through.
+ */
+export function qrSayLines(whatToSay: string[], decodedUrl: string): string[] {
+  const kept = whatToSay.filter((s) => !/original/i.test(s));
+  if (!kept.some((s) => /domain/i.test(s))) {
+    const hostname = extractHostname(decodedUrl);
+    kept.push(
+      hostname
+        ? `Can you confirm "${hostname}" is the official domain for this payment?`
+        : 'Can you confirm the official domain for this payment?',
+    );
+  }
+  return kept;
 }

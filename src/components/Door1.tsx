@@ -14,10 +14,17 @@ import {
   type BrowserSpeechRecognition,
 } from '../lib/voice';
 import {
+  QR_SAFETY_LINE,
+  SHORTENER_BANNER,
+  SHORTENER_FLAG,
   applyQrCeiling,
   decodeCanvas,
   decodeQrFromFile,
+  drawQrHighlight,
   fileToScreeningDataUrl,
+  isShortenedUrl,
+  qrSayLines,
+  splitQrFlags,
 } from '../lib/qr';
 import {
   OUTCOME_STEP,
@@ -295,6 +302,99 @@ function PaymentVerdictCard({
   );
 }
 
+function QrVerdictCard({
+  result,
+  decodedUrl,
+}: {
+  result: VerdictResult;
+  decodedUrl: string;
+}) {
+  const isGreen = result.verdict === 'Looks consistent with legitimate';
+  const badge = isGreen ? 'No red flags found' : result.verdict;
+  const { concerns, appearanceNotes } = splitQrFlags(result.redFlags);
+  const shortened = isShortenedUrl(decodedUrl);
+  const flags =
+    shortened && !concerns.some((f) => /shorten|redirect|final destination/i.test(f))
+      ? [SHORTENER_FLAG, ...concerns]
+      : concerns;
+  const sayLines = qrSayLines(result.whatToSay, decodedUrl);
+  return (
+    <section aria-label="QR verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <span
+        className={`inline-block rounded-full px-3 py-1 text-sm font-bold ${verdictStyles[result.verdict]}`}
+      >
+        {badge}
+      </span>
+      <p className="mt-2 text-sm font-semibold">{QR_SAFETY_LINE}</p>
+      {result.mock && result.note && (
+        <p className="mt-2 text-xs text-slate-500">{result.note}</p>
+      )}
+
+      <h3 className="mt-3 text-sm font-bold">Red flags</h3>
+      {flags.length > 0 ? (
+        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+          {flags.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-sm text-slate-600">None.</p>
+      )}
+
+      {appearanceNotes.length > 0 && (
+        <>
+          <h3 className="mt-3 text-sm font-bold">Checked and found normal</h3>
+          <h4 className="mt-2 text-sm font-semibold">
+            Sticker appearance (visual check only — can&apos;t confirm authenticity)
+          </h4>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+            {appearanceNotes.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <h3 className="mt-3 text-sm font-bold">What to do now</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        {result.whatToDo.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+
+      <h3 className="mt-3 text-sm font-bold">What to say</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        {sayLines.map((f) => (
+          <li key={f}>{f}</li>
+        ))}
+      </ul>
+
+      {typeof window !== 'undefined' && 'speechSynthesis' in window && (
+        <button
+          type="button"
+          onClick={() => speakText(`${badge}. ${result.whatToDo[0] ?? ''}`)}
+          className="mt-3 w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold"
+        >
+          Hear this verdict
+        </button>
+      )}
+
+      {result.whatToDo[0] && (
+        <p className="mt-3 text-sm">
+          <span className="font-bold">Your next step: </span>
+          {result.whatToDo[0]}
+        </p>
+      )}
+
+      {result.verdict !== 'Looks consistent with legitimate' && <ReportItRow />}
+
+      <p className="mt-3 text-xs text-slate-500">
+        This is guidance, not a guarantee — verify through official channels.
+      </p>
+    </section>
+  );
+}
+
 function PrivacyLine({ text }: { text: string }) {
   return (
     <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
@@ -395,6 +495,7 @@ export default function Door1() {
   const [qrLoading, setQrLoading] = useState(false);
   const [qrError, setQrError] = useState<string | null>(null);
   const [qrResult, setQrResult] = useState<VerdictResult | null>(null);
+  const [qrCheckedUrl, setQrCheckedUrl] = useState<string | null>(null);
   // Downscaled upload photo for the vision tamper check:
   // undefined = preparing, null = unavailable (check runs text-only).
   const [qrScreeningImage, setQrScreeningImage] = useState<string | null | undefined>(undefined);
@@ -403,6 +504,7 @@ export default function Door1() {
   const [camOn, setCamOn] = useState(false);
   const [camDecoded, setCamDecoded] = useState<string | null>(null);
   const [camFrame, setCamFrame] = useState<string | null>(null);
+  const [camDisplay, setCamDisplay] = useState<string | null>(null);
   const [camError, setCamError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -711,6 +813,7 @@ export default function Door1() {
   async function onQrFileChange(file: File | undefined) {
     setQrError(null);
     setQrResult(null);
+    setQrCheckedUrl(null);
     setQrDecoded(null);
     setQrScreeningImage(undefined);
     if (!file) {
@@ -719,20 +822,21 @@ export default function Door1() {
       return;
     }
     setQrFileName(file.name);
-    // Local preview only — nothing is uploaded or stored.
-    setQrPreview(URL.createObjectURL(file));
     // Downscaled copy for the vision tamper check, prepared alongside decode.
     fileToScreeningDataUrl(file).then((d) => setQrScreeningImage(d));
     setQrDecoding(true);
     try {
       const decoded = await decodeQrFromFile(file);
       if (!decoded) {
+        setQrPreview(null);
         setQrError(
           "Couldn't find a QR code in this photo. Don't pay via this sticker — use the official app or the meter itself.",
         );
         return;
       }
-      setQrDecoded(decoded);
+      // Preview shows the decoded code highlighted.
+      setQrPreview(decoded.previewDataUrl);
+      setQrDecoded(decoded.text);
     } finally {
       setQrDecoding(false);
     }
@@ -755,6 +859,7 @@ export default function Door1() {
         imageDataUrl: qrScreeningImage ?? undefined,
       });
       setQrResult(applyQrCeiling(verdict));
+      setQrCheckedUrl(qrDecoded);
     } catch {
       setQrError(`${FALLBACK_LINE} (The check failed — stay paused.)`);
     } finally {
@@ -786,11 +891,20 @@ export default function Door1() {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const decoded = decodeCanvas(canvas);
       if (decoded) {
-        setCamDecoded(decoded);
+        setCamDecoded(decoded.text);
+        // Clean frame for the tamper check first, then the highlighted display.
+        let clean: string | null = null;
         try {
-          setCamFrame(canvas.toDataURL('image/jpeg', 0.7));
+          clean = canvas.toDataURL('image/jpeg', 0.7);
         } catch {
-          setCamFrame(null);
+          clean = null;
+        }
+        setCamFrame(clean);
+        drawQrHighlight(canvas, decoded.location);
+        try {
+          setCamDisplay(canvas.toDataURL('image/jpeg', 0.7));
+        } catch {
+          setCamDisplay(clean);
         }
         stopCamera();
         return;
@@ -803,7 +917,9 @@ export default function Door1() {
     setCamError(null);
     setCamDecoded(null);
     setCamFrame(null);
+    setCamDisplay(null);
     setQrResult(null);
+    setQrCheckedUrl(null);
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         setCamError('This browser cannot access the camera. Use photo upload instead.');
@@ -890,6 +1006,7 @@ export default function Door1() {
         imageDataUrl: camFrame ?? undefined,
       });
       setQrResult(applyQrCeiling(verdict));
+      setQrCheckedUrl(camDecoded);
     } catch {
       setCamError(`${FALLBACK_LINE} (The check failed — stay paused.)`);
     } finally {
@@ -1310,6 +1427,11 @@ export default function Door1() {
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <h3 className="text-sm font-bold">This QR points to</h3>
                   <p className="mt-1 break-all font-mono text-sm">{qrDecoded}</p>
+                  {isShortenedUrl(qrDecoded) && (
+                    <p role="alert" className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                      {SHORTENER_BANNER}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1340,9 +1462,15 @@ export default function Door1() {
                   className={`w-full rounded-lg bg-slate-900 ${camOn ? '' : 'hidden'}`}
                 />
                 {camOn ? (
-                  <p className="mt-2 text-center text-sm text-slate-500">
-                    Point the camera at the QR code — it reads automatically.
-                  </p>
+                  <>
+                    <p className="mt-2 text-center text-sm text-slate-500">
+                      Hold steady, about 10 cm away, in good light.
+                    </p>
+                    <p className="mt-1 text-center text-xs text-slate-500">
+                      If it won&apos;t read: move closer or farther, avoid glare,
+                      or upload a photo instead.
+                    </p>
+                  </>
                 ) : (
                   <p className="py-2 text-center text-sm text-slate-500">
                     Point your camera at the QR sticker and it decodes live, in
@@ -1370,10 +1498,10 @@ export default function Door1() {
                 </button>
               )}
 
-              {camFrame && (
+              {(camDisplay ?? camFrame) && (
                 <img
-                  src={camFrame}
-                  alt="Captured QR frame"
+                  src={(camDisplay ?? camFrame) as string}
+                  alt="Captured QR frame with the decoded code highlighted"
                   className="max-h-48 rounded-lg border border-slate-200 object-contain"
                 />
               )}
@@ -1382,6 +1510,11 @@ export default function Door1() {
                 <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                   <h3 className="text-sm font-bold">This QR points to</h3>
                   <p className="mt-1 break-all font-mono text-sm">{camDecoded}</p>
+                  {isShortenedUrl(camDecoded) && (
+                    <p role="alert" className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                      {SHORTENER_BANNER}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -1404,7 +1537,9 @@ export default function Door1() {
             </>
           )}
 
-          {qrResult && <VerdictCard result={qrResult} />}
+          {qrResult && (
+            <QrVerdictCard result={qrResult} decodedUrl={qrCheckedUrl ?? ''} />
+          )}
 
           <PrivacyPhoto />
           <p className="text-xs text-slate-500">
