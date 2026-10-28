@@ -94,7 +94,8 @@ export default function App() {
             </button>
 
             <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
-              Privacy: nothing submitted is stored.
+              We don&apos;t keep your submissions in our database. Our AI provider
+              processes them to produce your result.
             </p>
           </div>
         )}

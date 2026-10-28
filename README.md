@@ -54,8 +54,9 @@ Without a key the app serves clearly-labeled MOCK verdicts, so the demo is verif
 
 ## Privacy design
 
-- Nothing submitted is stored — inputs are used only to produce the verdict.
-- Voice is transcribed and discarded.
+- We don't keep your submissions in our database. Our AI provider processes them to produce your result.
+- Your voice is transcribed to produce this check and is not kept in our database.
+- Your photo is processed in-session to produce this check and is not kept in our database. FraudPause never uses it for training.
 - SMS screening is permission-gated; WhatsApp is forward-only (end-to-end encrypted, never read by FraudPause).
 - No live call audio is captured; no bank integration of any kind.
 

@@ -109,7 +109,8 @@ export default function Door2() {
       )}
 
       <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
-        Privacy: nothing submitted is stored. Cases shown are synthetic.
+        We don&apos;t keep your case inputs in our database. Our AI provider
+        processes them to produce your result. Cases shown are synthetic.
       </p>
     </div>
   );

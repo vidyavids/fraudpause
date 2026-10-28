@@ -12,8 +12,9 @@
  * JSON part {mode, model, audioEncoding} and an `audio` file part.
  * JSON response carries the complete `transcript` in every mode.
  *
- * Privacy: audio is transcribed and discarded. Logs record sizes and
- * statuses only — never audio bytes or transcript content.
+ * Privacy: audio is transcribed to produce the check and is not kept
+ * in our database. Logs record sizes and statuses only — never audio
+ * bytes or transcript content.
  */
 
 const ASR_URL = 'https://api.meta.ai/v1/asr/transcribe';

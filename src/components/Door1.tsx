@@ -305,32 +305,23 @@ function PaymentVerdictCard({
   );
 }
 
-// NOTE: kept only for the payment mode footer until a payment-details
-// privacy line is supplied. All other modes use the per-input lines below.
-function PrivacyLine() {
+function PrivacyLine({ text }: { text: string }) {
   return (
     <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
-      Privacy: nothing submitted is stored. Your input is used only to produce
-      this verdict and is never saved.
+      {text}
     </p>
   );
 }
 
 function PrivacyMessages() {
   return (
-    <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
-      We don&apos;t keep your messages in our database. Our AI provider processes
-      them to produce your result.
-    </p>
+    <PrivacyLine text="We don't keep your messages in our database. Our AI provider processes them to produce your result." />
   );
 }
 
 function PrivacyPhoto() {
   return (
-    <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
-      Your photo is processed in-session to produce this check and is not kept
-      in our database. FraudPause never uses it for training.
-    </p>
+    <PrivacyLine text="Your photo is processed in-session to produce this check and is not kept in our database. FraudPause never uses it for training." />
   );
 }
 
@@ -1547,7 +1538,7 @@ export default function Door1() {
             />
           )}
 
-          <PrivacyLine />
+          <PrivacyLine text="We don't keep your payment details in our database. Our AI provider processes them to produce your result." />
         </>
       )}
     </div>
