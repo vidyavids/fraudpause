@@ -259,6 +259,38 @@ const REDIRECT_PATHS = [
   /^\/url\?/i,
 ];
 
+const SHORTENER_MENTION = /shorten|redirect|final destination/i;
+
+export interface QrShortenerRuled {
+  verdict: VerdictResult['verdict'];
+  concerns: string[];
+  cautions: string[];
+}
+
+/**
+ * Shortener rule: a shortened link hides its final destination, so it is a
+ * flag, never a clearance. Escalates green to Suspicious, lists the warning
+ * once under Red flags, and strips any duplicate from Cautions.
+ */
+export function applyShortenerRule(
+  verdict: VerdictResult['verdict'],
+  concerns: string[],
+  cautions: string[],
+  decodedUrl: string,
+): QrShortenerRuled {
+  if (!isShortenedUrl(decodedUrl)) return { verdict, concerns, cautions };
+  return {
+    verdict:
+      verdict === 'Looks consistent with legitimate'
+        ? 'Suspicious — slow down'
+        : verdict,
+    concerns: concerns.some((f) => SHORTENER_MENTION.test(f))
+      ? concerns
+      : [SHORTENER_FLAG, ...concerns],
+    cautions: cautions.filter((f) => !SHORTENER_MENTION.test(f)),
+  };
+}
+
 /**
  * True when the decoded link is shortened or redirect-patterned. The caller
  * must flag, never resolve — no request is ever made to the link.

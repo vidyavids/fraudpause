@@ -16,8 +16,8 @@ import {
 import {
   QR_SAFETY_LINE,
   SHORTENER_BANNER,
-  SHORTENER_FLAG,
   applyQrCeiling,
+  applyShortenerRule,
   buildQrMessage,
   decodeCanvas,
   decodeQrFromFile,
@@ -353,21 +353,23 @@ function QrVerdictCard({
   result: VerdictResult;
   decodedUrl: string;
 }) {
-  const isGreen = result.verdict === 'Looks consistent with legitimate';
-  const badge = isGreen ? 'No red flags found' : result.verdict;
   const {
-    concerns,
+    concerns: splitConcerns,
     appearanceNotes: flagNotes,
     cautions: derived,
   } = splitQrFlags(result.redFlags);
-  const cautions = mergeCautions(result.cautions, derived);
+  const ruled = applyShortenerRule(
+    result.verdict,
+    splitConcerns,
+    mergeCautions(result.cautions, derived),
+    decodedUrl,
+  );
+  const isGreen = ruled.verdict === 'Looks consistent with legitimate';
+  const badge = isGreen ? 'No red flags found' : ruled.verdict;
+  const flags = ruled.concerns;
+  const cautions = ruled.cautions;
   const { actions, appearanceNotes: doNotes } = splitQrDoNow(result.whatToDo);
   const appearanceNotes = [...flagNotes, ...doNotes];
-  const shortened = isShortenedUrl(decodedUrl);
-  const flags =
-    shortened && !concerns.some((f) => /shorten|redirect|final destination/i.test(f))
-      ? [SHORTENER_FLAG, ...concerns]
-      : concerns;
   const sayLines = qrSayLines(result.whatToSay, decodedUrl);
   return (
     <section aria-label="QR verdict" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -448,7 +450,7 @@ function QrVerdictCard({
         </p>
       )}
 
-      {result.verdict !== 'Looks consistent with legitimate' && <ReportItRow />}
+      {ruled.verdict !== 'Looks consistent with legitimate' && <ReportItRow />}
 
       <p className="mt-3 text-xs text-slate-500">
         This is guidance, not a guarantee — verify through official channels.
