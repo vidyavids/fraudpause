@@ -93,6 +93,35 @@ function VerdictCard({ result }: { result: VerdictResult }) {
           Hear this verdict
         </button>
       )}
+
+      {result.whatToDo[0] && (
+        <p className="mt-3 text-sm">
+          <span className="font-bold">Your next step: </span>
+          {result.whatToDo[0]}
+        </p>
+      )}
+
+      <p className="mt-3 text-sm">
+        <span className="font-bold">Report it: </span>
+        <a
+          href="https://reportfraud.ftc.gov"
+          target="_blank"
+          rel="noreferrer"
+          className="underline"
+        >
+          reportfraud.ftc.gov
+        </a>
+        {' · '}
+        <a href="https://www.ic3.gov" target="_blank" rel="noreferrer" className="underline">
+          ic3.gov
+        </a>
+        {' · '}
+        your bank&apos;s fraud line — the number on your card
+      </p>
+
+      <p className="mt-3 text-xs text-slate-500">
+        This is guidance, not a guarantee — verify through official channels.
+      </p>
     </section>
   );
 }
@@ -276,11 +305,31 @@ function PaymentVerdictCard({
   );
 }
 
+// NOTE: kept only for the payment mode footer until a payment-details
+// privacy line is supplied. All other modes use the per-input lines below.
 function PrivacyLine() {
   return (
     <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
       Privacy: nothing submitted is stored. Your input is used only to produce
       this verdict and is never saved.
+    </p>
+  );
+}
+
+function PrivacyMessages() {
+  return (
+    <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
+      We don&apos;t keep your messages in our database. Our AI provider processes
+      them to produce your result.
+    </p>
+  );
+}
+
+function PrivacyPhoto() {
+  return (
+    <p className="rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-700">
+      Your photo is processed in-session to produce this check and is not kept
+      in our database. FraudPause never uses it for training.
     </p>
   );
 }
@@ -971,7 +1020,8 @@ export default function Door1() {
               onRelease={endVoicePress}
             />
             <p className="text-xs text-slate-500">
-              Your voice is transcribed and discarded — nothing is stored.
+              Your voice is transcribed to produce this check and is not kept in
+              our database.
             </p>
           </div>
 
@@ -993,6 +1043,15 @@ export default function Door1() {
               />
             )}
           </label>
+
+          <p className="text-xs text-slate-500">
+            Your photo is processed in-session to produce this check and is not
+            kept in our database. FraudPause never uses it for training.
+          </p>
+          <p className="text-xs text-slate-500">
+            Crop or blur account numbers, names, and addresses before uploading
+            — only the message itself is needed.
+          </p>
 
           <label className="block">
             <span className="mb-1 block text-sm font-semibold">
@@ -1059,7 +1118,7 @@ export default function Door1() {
             )}
           </div>
 
-          <PrivacyLine />
+          <PrivacyMessages />
         </>
       )}
 
@@ -1132,7 +1191,7 @@ export default function Door1() {
             {waLoading ? 'Checking…' : 'Send to FraudPause'}
           </button>
 
-          <PrivacyLine />
+          <PrivacyMessages />
         </>
       )}
 
@@ -1199,8 +1258,6 @@ export default function Door1() {
             smsVerdicts[selectedSmsId] !== null && (
               <VerdictCard result={smsVerdicts[selectedSmsId] as VerdictResult} />
             )}
-
-          <PrivacyLine />
         </>
       )}
 
@@ -1210,12 +1267,6 @@ export default function Door1() {
             A QR sticker can hide any link. FraudPause reads what it really
             points to before you pay.
           </p>
-          <p className="text-xs text-slate-500">
-            Your photo is sent with the check so the sticker itself can be
-            examined for tamper signs. It is used only for this verdict and
-            never stored.
-          </p>
-
           <div role="tablist" aria-label="QR input" className="flex gap-2 text-sm">
             <button
               type="button"
@@ -1371,7 +1422,15 @@ export default function Door1() {
 
           {qrResult && <VerdictCard result={qrResult} />}
 
-          <PrivacyLine />
+          <PrivacyPhoto />
+          <p className="text-xs text-slate-500">
+            Crop or blur account numbers, names, and addresses before uploading
+            — only the message itself is needed.
+          </p>
+          <p className="text-xs text-slate-500">
+            Decoded on your device; only the link (and, for tamper analysis, the
+            photo) is sent for the verdict.
+          </p>
         </>
       )}
 
