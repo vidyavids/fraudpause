@@ -82,17 +82,15 @@ function ReportItRow() {
 
 function VerdictCard({
   result,
-  greenBadgeText,
-  safetyLine,
+  greenBadgeText = 'No red flags found',
+  safetyLine = "No red flags doesn't mean safe. Verify before paying.",
 }: {
   result: VerdictResult;
   greenBadgeText?: string;
   safetyLine?: string;
 }) {
-  const badge =
-    result.verdict === 'Looks consistent with legitimate' && greenBadgeText
-      ? greenBadgeText
-      : result.verdict;
+  const isGreen = result.verdict === 'Looks consistent with legitimate';
+  const badge = isGreen && greenBadgeText ? greenBadgeText : result.verdict;
   const { indicators, cautions: derived } = splitCautions(result.redFlags);
   const cautions = mergeCautions(result.cautions, derived);
   return (
@@ -102,7 +100,9 @@ function VerdictCard({
       >
         {badge}
       </span>
-      {safetyLine && <p className="mt-2 text-sm font-semibold">{safetyLine}</p>}
+      {isGreen && safetyLine && (
+        <p className="mt-2 text-sm font-semibold">{safetyLine}</p>
+      )}
       {result.mock && result.note && (
         <p className="mt-2 text-xs text-slate-500">{result.note}</p>
       )}
@@ -1426,11 +1426,7 @@ export default function Door1() {
           {selectedSmsId !== null &&
             smsVerdicts[selectedSmsId] !== undefined &&
             smsVerdicts[selectedSmsId] !== null && (
-              <VerdictCard
-                result={smsVerdicts[selectedSmsId] as VerdictResult}
-                greenBadgeText="No red flags found"
-                safetyLine="No red flags doesn't mean safe. Verify before paying."
-              />
+              <VerdictCard result={smsVerdicts[selectedSmsId] as VerdictResult} />
             )}
         </>
       )}
