@@ -41,6 +41,15 @@ import {
   type PaymentOutcome,
 } from '../lib/payment';
 import { mergeCautions, splitCautions } from '../lib/cautions';
+import {
+  NO_RED_FLAGS_BADGE,
+  SAFETY_LINE,
+  messageBadgeLabel,
+  nextStepItem,
+  showMessageReportRow,
+  showPaymentReportRow,
+  showSafetyLine,
+} from '../lib/cardRules';
 
 const AFTERMATH_CHECKLIST = [
   'Call your bank NOW using the number on your card — ask to freeze, recall, or dispute the payment.',
@@ -82,15 +91,15 @@ function ReportItRow() {
 
 function VerdictCard({
   result,
-  greenBadgeText = 'No red flags found',
-  safetyLine = "No red flags doesn't mean safe. Verify before paying.",
+  greenBadgeText = NO_RED_FLAGS_BADGE,
+  safetyLine = SAFETY_LINE,
 }: {
   result: VerdictResult;
   greenBadgeText?: string;
   safetyLine?: string;
 }) {
-  const isGreen = result.verdict === 'Looks consistent with legitimate';
-  const badge = isGreen && greenBadgeText ? greenBadgeText : result.verdict;
+  const badge = messageBadgeLabel(result.verdict, greenBadgeText);
+  const nextStep = nextStepItem(result.whatToDo);
   const { indicators, cautions: derived } = splitCautions(result.redFlags);
   const cautions = mergeCautions(result.cautions, derived);
   return (
@@ -100,7 +109,7 @@ function VerdictCard({
       >
         {badge}
       </span>
-      {isGreen && safetyLine && (
+      {showSafetyLine(result.verdict) && safetyLine && (
         <p className="mt-2 text-sm font-semibold">{safetyLine}</p>
       )}
       {result.mock && result.note && (
@@ -155,14 +164,14 @@ function VerdictCard({
         </button>
       )}
 
-      {result.whatToDo[0] && (
+      {nextStep && (
         <p className="mt-3 text-sm">
           <span className="font-bold">Your next step: </span>
-          {result.whatToDo[0]}
+          {nextStep}
         </p>
       )}
 
-      {result.verdict !== 'Looks consistent with legitimate' && <ReportItRow />}
+      {showMessageReportRow(result.verdict) && <ReportItRow />}
 
       <p className="mt-3 text-xs text-slate-500">
         This is guidance, not a guarantee — verify through official channels.
@@ -337,7 +346,7 @@ function PaymentVerdictCard({
         {OUTCOME_STEP[outcome]}
       </p>
 
-      {outcome !== 'PROCEED' && <ReportItRow />}
+      {showPaymentReportRow(outcome) && <ReportItRow />}
 
       <p className="mt-3 text-xs text-slate-500">
         This is guidance, not a guarantee — verify through official channels.
@@ -364,8 +373,7 @@ function QrVerdictCard({
     mergeCautions(result.cautions, derived),
     decodedUrl,
   );
-  const isGreen = ruled.verdict === 'Looks consistent with legitimate';
-  const badge = isGreen ? 'No red flags found' : ruled.verdict;
+  const badge = messageBadgeLabel(ruled.verdict);
   const flags = ruled.concerns;
   const cautions = ruled.cautions;
   const { actions, appearanceNotes: doNotes } = splitQrDoNow(result.whatToDo);
@@ -378,7 +386,9 @@ function QrVerdictCard({
       >
         {badge}
       </span>
-      {isGreen && <p className="mt-2 text-sm font-semibold">{QR_SAFETY_LINE}</p>}
+      {showSafetyLine(ruled.verdict) && (
+        <p className="mt-2 text-sm font-semibold">{QR_SAFETY_LINE}</p>
+      )}
       {result.mock && result.note && (
         <p className="mt-2 text-xs text-slate-500">{result.note}</p>
       )}
@@ -443,14 +453,14 @@ function QrVerdictCard({
         </button>
       )}
 
-      {result.whatToDo[0] && (
+      {nextStepItem(result.whatToDo) && (
         <p className="mt-3 text-sm">
           <span className="font-bold">Your next step: </span>
-          {result.whatToDo[0]}
+          {nextStepItem(result.whatToDo)}
         </p>
       )}
 
-      {ruled.verdict !== 'Looks consistent with legitimate' && <ReportItRow />}
+      {showMessageReportRow(ruled.verdict) && <ReportItRow />}
 
       <p className="mt-3 text-xs text-slate-500">
         This is guidance, not a guarantee — verify through official channels.
